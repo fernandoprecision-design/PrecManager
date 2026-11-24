@@ -20,7 +20,6 @@ import {
 import { auth, db, secondaryAuth } from './firebase';
 import { supabase, STORAGE_BUCKET } from './supabase';
 import {
-  Building2,
   FolderKanban,
   FileText,
   Download,
@@ -50,6 +49,98 @@ const DISCIPLINAS = [
   'Memoriais e Orçamentos',
   'Aprovações / Certidões',
 ];
+
+/* ============================================================================
+   LOGOTIPO VETORIAL OFICIAL — GRUPO PRECISION
+============================================================================ */
+function GrupoPrecisionLogo({ size = 'md', showText = true }) {
+  const dimensions = size === 'lg' ? 'w-16 h-16' : size === 'sm' ? 'w-8 h-8' : 'w-10 h-10';
+
+  return (
+    <div className="inline-flex items-center gap-3 select-none">
+      {/* Emblema Mira Grupo Precision */}
+      <div className={`${dimensions} bg-white rounded-xl p-1.5 shadow-sm border border-slate-200/80 flex items-center justify-center shrink-0`}>
+        <svg viewBox="0 0 200 200" className="w-full h-full" fill="none" xmlns="http://www.w3.org/2000/svg">
+          {/* Anel externo dividido em 4 quadrantes + laços */}
+          {/* Quadrante Superior Direito + Laço Superior */}
+          <path
+            d="M 108 32 A 68 68 0 0 1 168 92 L 150 92 A 50 50 0 0 0 108 50 Z"
+            fill="#7F091A"
+          />
+          <path
+            d="M 108 34 C 108 14, 138 14, 138 34 C 138 46, 126 52, 115 48"
+            stroke="#7F091A"
+            strokeWidth="12"
+            strokeLinecap="round"
+          />
+
+          {/* Quadrante Inferior Direito + Laço Direito */}
+          <path
+            d="M 168 108 A 68 68 0 0 1 108 168 L 108 150 A 50 50 0 0 0 150 108 Z"
+            fill="#7F091A"
+          />
+          <path
+            d="M 166 108 C 186 108, 186 138, 166 138 C 154 138, 148 126, 152 115"
+            stroke="#7F091A"
+            strokeWidth="12"
+            strokeLinecap="round"
+          />
+
+          {/* Quadrante Inferior Esquerdo + Laço Inferior */}
+          <path
+            d="M 92 168 A 68 68 0 0 1 32 108 L 50 108 A 50 50 0 0 0 92 150 Z"
+            fill="#7F091A"
+          />
+          <path
+            d="M 92 166 C 92 186, 62 186, 62 166 C 62 154, 74 148, 85 152"
+            stroke="#7F091A"
+            strokeWidth="12"
+            strokeLinecap="round"
+          />
+
+          {/* Quadrante Superior Esquerdo + Laço Esquerdo */}
+          <path
+            d="M 32 92 A 68 68 0 0 1 92 32 L 92 50 A 50 50 0 0 0 50 92 Z"
+            fill="#7F091A"
+          />
+          <path
+            d="M 34 92 C 14 92, 14 62, 34 62 C 46 62, 52 74, 48 85"
+            stroke="#7F091A"
+            strokeWidth="12"
+            strokeLinecap="round"
+          />
+
+          {/* Setores internos cinza escuro */}
+          <path d="M 93 64 A 36 36 0 0 0 64 93 L 93 93 Z" fill="#383838" />
+          <path d="M 107 64 A 36 36 0 0 1 136 93 L 107 93 Z" fill="#383838" />
+          <path d="M 136 107 A 36 36 0 0 1 107 136 L 107 107 Z" fill="#383838" />
+          <path d="M 64 107 A 36 36 0 0 0 93 136 L 93 107 Z" fill="#383838" />
+
+          {/* Cruz divisória branca */}
+          <rect x="93" y="58" width="14" height="84" fill="#FFFFFF" />
+          <rect x="58" y="93" width="84" height="14" fill="#FFFFFF" />
+
+          {/* Ponto central bordô */}
+          <circle cx="100" cy="100" r="10" fill="#7F091A" />
+        </svg>
+      </div>
+
+      {showText && (
+        <div className="leading-none">
+          <div className="flex items-baseline gap-1.5">
+            <span className="font-bold text-lg tracking-tight text-white">
+              Prec<span className="text-blue-400">Manager</span>
+            </span>
+          </div>
+          <div className="mt-1 flex items-center gap-1 text-[10px] font-bold tracking-[0.18em] uppercase text-slate-300">
+            <span>GRUPO</span>
+            <span className="text-rose-400">PRECISION</span>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function App() {
   const [user, setUser] = useState(null);
@@ -120,15 +211,18 @@ export default function App() {
     return (
       <div className="min-h-screen flex flex-col justify-center items-center bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 px-4">
         <div className="w-full max-w-md bg-white rounded-2xl shadow-2xl overflow-hidden border border-slate-200">
-          <div className="bg-slate-900 px-8 py-7 text-center border-b border-slate-800">
-            <div className="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-blue-600/20 border border-blue-500/30 text-blue-400 mb-3">
-              <Building2 className="w-6 h-6" />
+          {/* Cabeçalho Institucional da Tela de Login */}
+          <div className="bg-slate-900 px-8 py-8 text-center border-b border-slate-800 flex flex-col items-center">
+            <GrupoPrecisionLogo size="lg" showText={false} />
+            <div className="mt-3 tracking-[0.22em] text-xs font-extrabold uppercase">
+              <span className="text-slate-300">GRUPO </span>
+              <span className="text-rose-500">PRECISION</span>
             </div>
-            <h1 className="text-2xl font-bold text-white tracking-tight">
+            <h1 className="text-2xl font-bold text-white tracking-tight mt-2">
               Prec<span className="text-blue-400">Manager</span>
             </h1>
-            <p className="text-xs text-slate-400 uppercase tracking-widest mt-1">
-              Grupo Precision • Portal Técnico
+            <p className="text-xs text-slate-400 mt-1">
+              Portal de Gestão e Entrega de Projetos de Engenharia
             </p>
           </div>
 
@@ -178,7 +272,7 @@ export default function App() {
 
             <div className="pt-2 flex items-center justify-center gap-1.5 text-xs text-slate-400">
               <ShieldCheck className="w-4 h-4 text-emerald-600" />
-              <span>Ambiente protegido • Entrega Técnica Rastreada</span>
+              <span>Grupo Precision • Entrega Técnica Rastreada</span>
             </div>
           </form>
         </div>
@@ -423,23 +517,19 @@ function AdminDashboard({ userProfile, onLogout }) {
       <header className="bg-slate-900 text-white border-b border-slate-800 sticky top-0 z-20">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-lg bg-blue-600 flex items-center justify-center font-bold">
-              <Building2 className="w-5 h-5" />
-            </div>
-            <div>
-              <span className="font-bold text-lg tracking-tight">
-                Prec<span className="text-blue-400">Manager</span>
-              </span>
-              <span className="ml-2.5 text-xs px-2 py-0.5 rounded bg-blue-500/20 text-blue-300 border border-blue-500/30 font-medium">
-                Admin • Grupo Precision
-              </span>
-            </div>
+            <GrupoPrecisionLogo size="md" showText={true} />
+            <span className="hidden md:inline-block ml-2 text-xs px-2.5 py-0.5 rounded bg-blue-500/20 text-blue-300 border border-blue-500/30 font-medium">
+              Gestão Técnica
+            </span>
           </div>
 
           <div className="flex items-center gap-4">
-            <span className="hidden sm:inline text-sm text-slate-300">
-              Olá, <strong>{userProfile.nome}</strong>
-            </span>
+            <div className="hidden sm:block text-right">
+              <p className="text-xs font-semibold text-white">{userProfile.nome}</p>
+              <p className="text-[11px] text-slate-400">
+                {userProfile.empresa || 'Grupo Precision'} • Administrador
+              </p>
+            </div>
             <button
               onClick={onLogout}
               className="flex items-center gap-1.5 text-xs bg-slate-800 hover:bg-slate-700 text-slate-200 px-3 py-2 rounded-lg border border-slate-700 transition"
@@ -863,7 +953,7 @@ function AdminDashboard({ userProfile, onLogout }) {
               <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
                 <div className="p-4 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
                   <h2 className="text-sm font-bold text-slate-800">
-                    Registro Oficial de Recebimento de Arquivos
+                    Registro Oficial de Recebimento de Arquivos • Grupo Precision
                   </h2>
                   <span className="text-xs text-slate-500">Total: {logs.length} downloads</span>
                 </div>
@@ -905,6 +995,10 @@ function AdminDashboard({ userProfile, onLogout }) {
           </>
         )}
       </main>
+
+      <footer className="bg-white border-t border-slate-200 py-4 text-center text-xs text-slate-400">
+        PrecManager • Sistema de Entrega Técnica de Projetos — <strong>Grupo Precision</strong>
+      </footer>
     </div>
   );
 }
@@ -977,19 +1071,7 @@ function ClientDashboard({ userProfile, onLogout }) {
     <div className="min-h-screen bg-slate-50 flex flex-col">
       <header className="bg-slate-900 text-white border-b border-slate-800 sticky top-0 z-20">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-lg bg-blue-600 flex items-center justify-center">
-              <Building2 className="w-5 h-5" />
-            </div>
-            <div>
-              <span className="font-bold text-lg tracking-tight">
-                Prec<span className="text-blue-400">Manager</span>
-              </span>
-              <span className="hidden sm:inline ml-2 text-xs text-slate-400">
-                | Grupo Precision
-              </span>
-            </div>
-          </div>
+          <GrupoPrecisionLogo size="md" showText={true} />
 
           <div className="flex items-center gap-4">
             <div className="text-right hidden sm:block">
@@ -1009,6 +1091,9 @@ function ClientDashboard({ userProfile, onLogout }) {
 
       <div className="bg-white border-b border-slate-200">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+          <div className="flex items-center gap-2 text-xs font-semibold text-blue-600 uppercase tracking-wider mb-1">
+            <span>Acervo Técnico • Grupo Precision</span>
+          </div>
           <h1 className="text-xl font-bold text-slate-900">
             Central de Projetos e Entregas Técnicas
           </h1>
@@ -1122,6 +1207,10 @@ function ClientDashboard({ userProfile, onLogout }) {
           </div>
         )}
       </main>
+
+      <footer className="bg-white border-t border-slate-200 py-4 text-center text-xs text-slate-400">
+        PrecManager • Portal de Projetos — <strong>Grupo Precision</strong>
+      </footer>
     </div>
   );
 }
