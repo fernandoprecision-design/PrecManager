@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   signInWithEmailAndPassword,
   signOut,
@@ -17,6 +17,7 @@ import {
   query,
   where,
   serverTimestamp,
+  Timestamp,
 } from 'firebase/firestore';
 import { auth, db, secondaryAuth } from './firebase';
 import { supabase, STORAGE_BUCKET } from './supabase';
@@ -43,6 +44,14 @@ import {
   X,
   Lock,
   Unlock,
+  Archive,
+  CalendarClock,
+  ChevronDown,
+  ChevronRight,
+  Folder,
+  FolderOpen,
+  Layers,
+  Menu,
 } from 'lucide-react';
 
 const DISCIPLINAS_PADRAO = [
@@ -66,48 +75,18 @@ function GrupoPrecisionLogo({ size = 'md', showText = true }) {
 
   return (
     <div className="inline-flex items-center gap-3 select-none">
-      <div className={`${dimensions} bg-white rounded-xl p-1.5 shadow-sm border border-slate-200/80 flex items-center justify-center shrink-0`}>
+      <div
+        className={`${dimensions} bg-white rounded-xl p-1.5 shadow-sm border border-slate-200/80 flex items-center justify-center shrink-0`}
+      >
         <svg viewBox="0 0 200 200" className="w-full h-full" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <path
-            d="M 108 32 A 68 68 0 0 1 168 92 L 150 92 A 50 50 0 0 0 108 50 Z"
-            fill="#7F091A"
-          />
-          <path
-            d="M 108 34 C 108 14, 138 14, 138 34 C 138 46, 126 52, 115 48"
-            stroke="#7F091A"
-            strokeWidth="12"
-            strokeLinecap="round"
-          />
-          <path
-            d="M 168 108 A 68 68 0 0 1 108 168 L 108 150 A 50 50 0 0 0 150 108 Z"
-            fill="#7F091A"
-          />
-          <path
-            d="M 166 108 C 186 108, 186 138, 166 138 C 154 138, 148 126, 152 115"
-            stroke="#7F091A"
-            strokeWidth="12"
-            strokeLinecap="round"
-          />
-          <path
-            d="M 92 168 A 68 68 0 0 1 32 108 L 50 108 A 50 50 0 0 0 92 150 Z"
-            fill="#7F091A"
-          />
-          <path
-            d="M 92 166 C 92 186, 62 186, 62 166 C 62 154, 74 148, 85 152"
-            stroke="#7F091A"
-            strokeWidth="12"
-            strokeLinecap="round"
-          />
-          <path
-            d="M 32 92 A 68 68 0 0 1 92 32 L 92 50 A 50 50 0 0 0 50 92 Z"
-            fill="#7F091A"
-          />
-          <path
-            d="M 34 92 C 14 92, 14 62, 34 62 C 46 62, 52 74, 48 85"
-            stroke="#7F091A"
-            strokeWidth="12"
-            strokeLinecap="round"
-          />
+          <path d="M 108 32 A 68 68 0 0 1 168 92 L 150 92 A 50 50 0 0 0 108 50 Z" fill="#7F091A" />
+          <path d="M 108 34 C 108 14, 138 14, 138 34 C 138 46, 126 52, 115 48" stroke="#7F091A" strokeWidth="12" strokeLinecap="round" />
+          <path d="M 168 108 A 68 68 0 0 1 108 168 L 108 150 A 50 50 0 0 0 150 108 Z" fill="#7F091A" />
+          <path d="M 166 108 C 186 108, 186 138, 166 138 C 154 138, 148 126, 152 115" stroke="#7F091A" strokeWidth="12" strokeLinecap="round" />
+          <path d="M 92 168 A 68 68 0 0 1 32 108 L 50 108 A 50 50 0 0 0 92 150 Z" fill="#7F091A" />
+          <path d="M 92 166 C 92 186, 62 186, 62 166 C 62 154, 74 148, 85 152" stroke="#7F091A" strokeWidth="12" strokeLinecap="round" />
+          <path d="M 32 92 A 68 68 0 0 1 92 32 L 92 50 A 50 50 0 0 0 50 92 Z" fill="#7F091A" />
+          <path d="M 34 92 C 14 92, 14 62, 34 62 C 46 62, 52 74, 48 85" stroke="#7F091A" strokeWidth="12" strokeLinecap="round" />
           <path d="M 93 64 A 36 36 0 0 0 64 93 L 93 93 Z" fill="#383838" />
           <path d="M 107 64 A 36 36 0 0 1 136 93 L 107 93 Z" fill="#383838" />
           <path d="M 136 107 A 36 36 0 0 1 107 136 L 107 107 Z" fill="#383838" />
@@ -135,6 +114,21 @@ function GrupoPrecisionLogo({ size = 'md', showText = true }) {
   );
 }
 
+/* Helpers de Expiração */
+function isUsuarioExpirado(userData) {
+  if (!userData || !userData.expiraEm) return false;
+  const expMillis = userData.expiraEm.seconds
+    ? userData.expiraEm.seconds * 1000
+    : new Date(userData.expiraEm).getTime();
+  return Date.now() > expMillis;
+}
+
+function formatarDataExpiracao(expiraEm) {
+  if (!expiraEm) return 'Acesso Permanente';
+  const dateObj = expiraEm.seconds ? new Date(expiraEm.seconds * 1000) : new Date(expiraEm);
+  return dateObj.toLocaleDateString('pt-BR');
+}
+
 export default function App() {
   const [user, setUser] = useState(null);
   const [userProfile, setUserProfile] = useState(null);
@@ -152,10 +146,21 @@ export default function App() {
           const docRef = doc(db, 'users', currentUser.uid);
           const docSnap = await getDoc(docRef);
           if (docSnap.exists()) {
+            const dados = docSnap.data();
+            if (dados.role !== 'admin' && isUsuarioExpirado(dados)) {
+              setLoginError(
+                'O prazo de validade do seu acesso expirou e os arquivos foram arquivados. Entre em contato com a Grupo Precision caso precise reativar.'
+              );
+              await signOut(auth);
+              setUser(null);
+              setUserProfile(null);
+              setLoadingAuth(false);
+              return;
+            }
             setUser(currentUser);
-            setUserProfile({ id: currentUser.uid, ...docSnap.data() });
+            setUserProfile({ id: currentUser.uid, ...dados });
           } else {
-            setLoginError('Perfil de usuário não encontrado no banco de dados.');
+            setLoginError('Perfil de usuário não encontrado ou encerrado no sistema.');
             await signOut(auth);
           }
         } catch (err) {
@@ -280,16 +285,19 @@ export default function App() {
 }
 
 /* ============================================================================
-   PAINEL ADMINISTRATIVO (GRUPO PRECISION)
+   PAINEL ADMINISTRATIVO (LAYOUT COM SIDEBAR LATERAL + LIMPEZA AUTOMÁTICA)
 ============================================================================ */
 function AdminDashboard({ userProfile, onLogout }) {
   const [activeTab, setActiveTab] = useState('arquivos');
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
   const [empresas, setEmpresas] = useState([]);
   const [usuarios, setUsuarios] = useState([]);
   const [empreendimentos, setEmpreendimentos] = useState([]);
   const [arquivos, setArquivos] = useState([]);
   const [disciplinas, setDisciplinas] = useState([]);
   const [logs, setLogs] = useState([]);
+  const [historico, setHistorico] = useState([]);
   const [loading, setLoading] = useState(true);
 
   // Nova Empresa
@@ -298,7 +306,7 @@ function AdminDashboard({ userProfile, onLogout }) {
   const [novaEmpCidade, setNovaEmpCidade] = useState('');
   const [salvandoEmpresa, setSalvandoEmpresa] = useState(false);
 
-  // Novo Usuário + Permissões
+  // Novo Usuário + Permissões + Prazo
   const [userEmpresaId, setUserEmpresaId] = useState('');
   const [userNome, setUserNome] = useState('');
   const [userCargo, setUserCargo] = useState('');
@@ -306,12 +314,16 @@ function AdminDashboard({ userProfile, onLogout }) {
   const [userSenha, setUserSenha] = useState('');
   const [userAcessoTotal, setUserAcessoTotal] = useState(true);
   const [userEmpsPermitidos, setUserEmpsPermitidos] = useState([]);
+  const [userPrazoDias, setUserPrazoDias] = useState('PERMANENTE');
+  const [userDataCustom, setUserDataCustom] = useState('');
   const [salvandoUser, setSalvandoUser] = useState(false);
 
-  // Modal/Drawer Edição de Permissões de Usuário Existente
+  // Modal Edição de Permissões & Prazo
   const [editUserModal, setEditUserModal] = useState(null);
   const [editAcessoTotal, setEditAcessoTotal] = useState(true);
   const [editEmpsPermitidos, setEditEmpsPermitidos] = useState([]);
+  const [editPrazoModo, setEditPrazoModo] = useState('MANTER');
+  const [editDataCustom, setEditDataCustom] = useState('');
   const [salvandoPermissoes, setSalvandoPermissoes] = useState(false);
 
   // Novo Empreendimento
@@ -329,7 +341,7 @@ function AdminDashboard({ userProfile, onLogout }) {
   const [upFile, setUpFile] = useState(null);
   const [uploading, setUploading] = useState(false);
 
-  // Gestão de Disciplinas (CRUD)
+  // Gestão de Disciplinas
   const [novaDisciplinaNome, setNovaDisciplinaNome] = useState('');
   const [salvandoDisc, setSalvandoDisc] = useState(false);
   const [editandoDiscId, setEditandoDiscId] = useState(null);
@@ -337,30 +349,88 @@ function AdminDashboard({ userProfile, onLogout }) {
 
   // Filtros
   const [filtroEmpresa, setFiltroEmpresa] = useState('');
+  const [buscaHistorico, setBuscaHistorico] = useState('');
 
-  const carregarDados = async () => {
+  /* --- Limpeza Automática Silenciosa em Segundo Plano --- */
+  const executarLimpezaAutomaticaSilenciosa = async (listaUsers, listaArqs, listaHist) => {
+    const expirados = listaUsers.filter((u) => isUsuarioExpirado(u));
+    if (expirados.length === 0) return false;
+
+    try {
+      const idsExpirados = expirados.map((u) => u.id);
+
+      for (const uExp of expirados) {
+        const outrosAtivosNaEmpresa = listaUsers.filter(
+          (u) => u.empresaId === uExp.empresaId && !idsExpirados.includes(u.id)
+        );
+
+        if (outrosAtivosNaEmpresa.length === 0) {
+          const arqsDaEmpresa = listaArqs.filter((a) => a.empresaId === uExp.empresaId);
+          for (const arq of arqsDaEmpresa) {
+            if (arq.storagePath) {
+              await supabase.storage.from(STORAGE_BUCKET).remove([arq.storagePath]);
+            }
+            await deleteDoc(doc(db, 'arquivos', arq.id));
+
+            const histMatch = listaHist.find((h) => h.arquivoIdOriginal === arq.id);
+            if (histMatch) {
+              await updateDoc(doc(db, 'historico_entregas', histMatch.id), {
+                statusArquivo: 'Expirado (Limpeza Automática)',
+                expurgadoEm: serverTimestamp(),
+              });
+            }
+          }
+        }
+
+        await deleteDoc(doc(db, 'users', uExp.id));
+      }
+      return true;
+    } catch (err) {
+      console.error('Erro na limpeza automática:', err);
+      return false;
+    }
+  };
+
+  const carregarDados = useCallback(async () => {
     setLoading(true);
     try {
-      // 1. Empresas
       const snapEmpresas = await getDocs(collection(db, 'empresas'));
       const listaEmpresas = snapEmpresas.docs.map((d) => ({ id: d.id, ...d.data() }));
       listaEmpresas.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
-      setEmpresas(listaEmpresas);
 
-      // 2. Usuários Clientes
       const qUsers = query(collection(db, 'users'), where('role', '==', 'client'));
       const snapUsers = await getDocs(qUsers);
       const listaUsers = snapUsers.docs.map((d) => ({ id: d.id, ...d.data() }));
       listaUsers.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
-      setUsuarios(listaUsers);
 
-      // 3. Empreendimentos
       const snapEmps = await getDocs(collection(db, 'empreendimentos'));
       const listaEmps = snapEmps.docs.map((d) => ({ id: d.id, ...d.data() }));
       listaEmps.sort((a, b) => a.nomeObra.localeCompare(b.nomeObra, 'pt-BR'));
-      setEmpreendimentos(listaEmps);
 
-      // 4. Disciplinas
+      const snapArqs = await getDocs(collection(db, 'arquivos'));
+      const listaArqs = snapArqs.docs.map((d) => ({ id: d.id, ...d.data() }));
+      listaArqs.sort((a, b) => (b.enviadoEm?.seconds || 0) - (a.enviadoEm?.seconds || 0));
+
+      const snapHist = await getDocs(collection(db, 'historico_entregas'));
+      const listaHist = snapHist.docs.map((d) => ({ id: d.id, ...d.data() }));
+      listaHist.sort((a, b) => (b.dataPublicacao?.seconds || 0) - (a.dataPublicacao?.seconds || 0));
+
+      // Executa limpeza automática silenciosa se houver expirados
+      const houveLimpeza = await executarLimpezaAutomaticaSilenciosa(
+        listaUsers,
+        listaArqs,
+        listaHist
+      );
+      if (houveLimpeza) {
+        return carregarDados();
+      }
+
+      setEmpresas(listaEmpresas);
+      setUsuarios(listaUsers);
+      setEmpreendimentos(listaEmps);
+      setArquivos(listaArqs);
+      setHistorico(listaHist);
+
       const snapDiscs = await getDocs(collection(db, 'disciplinas'));
       let listaDiscs = snapDiscs.docs.map((d) => ({ id: d.id, ...d.data() }));
       if (listaDiscs.length === 0) {
@@ -378,13 +448,6 @@ function AdminDashboard({ userProfile, onLogout }) {
         setUpDisciplina(listaDiscs[0].nome);
       }
 
-      // 5. Arquivos
-      const snapArqs = await getDocs(collection(db, 'arquivos'));
-      const listaArqs = snapArqs.docs.map((d) => ({ id: d.id, ...d.data() }));
-      listaArqs.sort((a, b) => (b.enviadoEm?.seconds || 0) - (a.enviadoEm?.seconds || 0));
-      setArquivos(listaArqs);
-
-      // 6. Logs de Download
       const snapLogs = await getDocs(collection(db, 'logs_download'));
       const listaLogs = snapLogs.docs.map((d) => ({ id: d.id, ...d.data() }));
       listaLogs.sort((a, b) => (b.baixadoEm?.seconds || 0) - (a.baixadoEm?.seconds || 0));
@@ -394,13 +457,26 @@ function AdminDashboard({ userProfile, onLogout }) {
     } finally {
       setLoading(false);
     }
-  };
+  }, [upDisciplina]);
 
   useEffect(() => {
     carregarDados();
-  }, []);
+  }, [carregarDados]);
 
-  /* --- Handlers de Empresas --- */
+  const calcularTimestampExpiracao = (modo, dataCustom) => {
+    if (modo === 'PERMANENTE') return null;
+    if (modo === 'CUSTOM') {
+      if (!dataCustom) return null;
+      const d = new Date(`${dataCustom}T23:59:59`);
+      return Timestamp.fromDate(d);
+    }
+    const dias = parseInt(modo, 10);
+    const d = new Date();
+    d.setDate(d.getDate() + dias);
+    return Timestamp.fromDate(d);
+  };
+
+  /* --- Handlers CRUD --- */
   const handleCriarEmpresa = async (e) => {
     e.preventDefault();
     if (!novaEmpNome.trim()) return;
@@ -425,7 +501,6 @@ function AdminDashboard({ userProfile, onLogout }) {
     }
   };
 
-  /* --- Handlers de Usuários & Permissões --- */
   const toggleEmpPermitidoNovo = (empId) => {
     setUserEmpsPermitidos((prev) =>
       prev.includes(empId) ? prev.filter((id) => id !== empId) : [...prev, empId]
@@ -446,10 +521,16 @@ function AdminDashboard({ userProfile, onLogout }) {
       alert('Selecione pelo menos um empreendimento permitido ou marque "Acesso Total".');
       return;
     }
+    if (userPrazoDias === 'CUSTOM' && !userDataCustom) {
+      alert('Informe a data limite de expiração.');
+      return;
+    }
 
     setSalvandoUser(true);
     try {
       const empresaObj = empresas.find((emp) => emp.id === userEmpresaId);
+      const expiraEmTimestamp = calcularTimestampExpiracao(userPrazoDias, userDataCustom);
+
       const cred = await createUserWithEmailAndPassword(
         secondaryAuth,
         userEmail.trim(),
@@ -465,12 +546,17 @@ function AdminDashboard({ userProfile, onLogout }) {
         role: 'client',
         acessoTotal: userAcessoTotal,
         empreendimentosPermitidos: userAcessoTotal ? [] : userEmpsPermitidos,
+        expiraEm: expiraEmTimestamp,
         criadoEm: serverTimestamp(),
       });
       await signOut(secondaryAuth);
 
+      const textoValidade = expiraEmTimestamp
+        ? `Válido até ${formatarDataExpiracao(expiraEmTimestamp)}`
+        : 'Acesso Permanente';
+
       alert(
-        `Usuário cadastrado com sucesso!\n\nEmpresa: ${empresaObj?.nome}\nLogin: ${userEmail}\nSenha: ${userSenha}`
+        `Usuário cadastrado com sucesso!\n\nEmpresa: ${empresaObj?.nome}\nLogin: ${userEmail}\nSenha: ${userSenha}\nValidade: ${textoValidade}`
       );
       setUserNome('');
       setUserCargo('');
@@ -478,6 +564,8 @@ function AdminDashboard({ userProfile, onLogout }) {
       setUserSenha('');
       setUserAcessoTotal(true);
       setUserEmpsPermitidos([]);
+      setUserPrazoDias('PERMANENTE');
+      setUserDataCustom('');
       carregarDados();
     } catch (err) {
       console.error(err);
@@ -491,6 +579,8 @@ function AdminDashboard({ userProfile, onLogout }) {
     setEditUserModal(u);
     setEditAcessoTotal(u.acessoTotal !== false);
     setEditEmpsPermitidos(u.empreendimentosPermitidos || []);
+    setEditPrazoModo('MANTER');
+    setEditDataCustom('');
   };
 
   const toggleEmpPermitidoEdicao = (empId) => {
@@ -507,10 +597,14 @@ function AdminDashboard({ userProfile, onLogout }) {
     }
     setSalvandoPermissoes(true);
     try {
-      await updateDoc(doc(db, 'users', editUserModal.id), {
+      const payload = {
         acessoTotal: editAcessoTotal,
         empreendimentosPermitidos: editAcessoTotal ? [] : editEmpsPermitidos,
-      });
+      };
+      if (editPrazoModo !== 'MANTER') {
+        payload.expiraEm = calcularTimestampExpiracao(editPrazoModo, editDataCustom);
+      }
+      await updateDoc(doc(db, 'users', editUserModal.id), payload);
       setEditUserModal(null);
       carregarDados();
     } catch (err) {
@@ -521,7 +615,6 @@ function AdminDashboard({ userProfile, onLogout }) {
     }
   };
 
-  /* --- Handlers de Empreendimentos --- */
   const handleCriarEmpreendimento = async (e) => {
     e.preventDefault();
     if (!empEmpresaId) {
@@ -551,7 +644,6 @@ function AdminDashboard({ userProfile, onLogout }) {
     }
   };
 
-  /* --- Handlers de Disciplinas --- */
   const handleCriarDisciplina = async (e) => {
     e.preventDefault();
     const nomeLimpo = novaDisciplinaNome.trim();
@@ -606,7 +698,6 @@ function AdminDashboard({ userProfile, onLogout }) {
     }
   };
 
-  /* --- Handlers de Arquivos --- */
   const handleUploadArquivo = async (e) => {
     e.preventDefault();
     if (!upEmpId || !upFile) {
@@ -635,7 +726,7 @@ function AdminDashboard({ userProfile, onLogout }) {
 
       const tamanhoMB = (upFile.size / (1024 * 1024)).toFixed(2) + ' MB';
 
-      await addDoc(collection(db, 'arquivos'), {
+      const docArqRef = await addDoc(collection(db, 'arquivos'), {
         empreendimentoId: upEmpId,
         empreendimentoNome: empObj.nomeObra,
         empresaId: empObj.empresaId,
@@ -651,11 +742,33 @@ function AdminDashboard({ userProfile, onLogout }) {
         enviadoEm: serverTimestamp(),
       });
 
+      const usuariosComAcesso = usuarios
+        .filter(
+          (u) =>
+            u.empresaId === empObj.empresaId &&
+            (u.acessoTotal === true || (u.empreendimentosPermitidos || []).includes(upEmpId))
+        )
+        .map((u) => `${u.nome} (${u.email})`);
+
+      await addDoc(collection(db, 'historico_entregas'), {
+        arquivoIdOriginal: docArqRef.id,
+        empresaNome: empObj.empresaNome,
+        empreendimentoNome: empObj.nomeObra,
+        titulo: upTitulo.trim() || upFile.name,
+        disciplina: upDisciplina || 'Geral',
+        revisao: upRevisao.trim().toUpperCase(),
+        nomeArquivoOriginal: upFile.name,
+        tamanho: tamanhoMB,
+        usuariosLiberados: usuariosComAcesso.join('; ') || 'Nenhum usuário vinculado no envio',
+        statusArquivo: 'Ativo no Portal',
+        dataPublicacao: serverTimestamp(),
+      });
+
       setUpTitulo('');
       setUpFile(null);
       document.getElementById('file-input').value = '';
       carregarDados();
-      alert('Arquivo publicado com sucesso no portal do cliente!');
+      alert('Arquivo publicado com sucesso!');
     } catch (err) {
       console.error(err);
       alert('Erro no upload: ' + err.message);
@@ -665,12 +778,26 @@ function AdminDashboard({ userProfile, onLogout }) {
   };
 
   const handleExcluirArquivo = async (arq) => {
-    if (!window.confirm(`Deseja realmente excluir "${arq.titulo}"?`)) return;
+    if (
+      !window.confirm(
+        `Deseja remover "${arq.titulo}" do portal ativo? (O registro no Histórico Permanente será mantido)`
+      )
+    )
+      return;
     try {
       if (arq.storagePath) {
         await supabase.storage.from(STORAGE_BUCKET).remove([arq.storagePath]);
       }
       await deleteDoc(doc(db, 'arquivos', arq.id));
+
+      const histCorrespondente = historico.find((h) => h.arquivoIdOriginal === arq.id);
+      if (histCorrespondente) {
+        await updateDoc(doc(db, 'historico_entregas', histCorrespondente.id), {
+          statusArquivo: 'Removido Manualmente',
+          expurgadoEm: serverTimestamp(),
+        });
+      }
+
       carregarDados();
     } catch (err) {
       console.error(err);
@@ -679,15 +806,16 @@ function AdminDashboard({ userProfile, onLogout }) {
   };
 
   const handleNotificarUsuariosDaObra = (arq) => {
-    // Filtra apenas os usuários daquela empresa que têm acesso a este empreendimento
     const destinatarios = usuarios.filter(
       (u) =>
         u.empresaId === arq.empresaId &&
-        (u.acessoTotal === true || (u.empreendimentosPermitidos || []).includes(arq.empreendimentoId))
+        !isUsuarioExpirado(u) &&
+        (u.acessoTotal === true ||
+          (u.empreendimentosPermitidos || []).includes(arq.empreendimentoId))
     );
 
     if (destinatarios.length === 0) {
-      alert('Nenhum usuário cadastrado possui permissão ativa para este empreendimento.');
+      alert('Nenhum usuário ativo possui permissão para este empreendimento.');
       return;
     }
 
@@ -710,151 +838,182 @@ function AdminDashboard({ userProfile, onLogout }) {
     window.open(`mailto:${emails}?subject=${assunto}&body=${corpo}`, '_blank');
   };
 
+  const navGroups = [
+    {
+      title: 'Operacional',
+      items: [
+        { id: 'arquivos', label: 'Entregas & Arquivos', icon: FileText, count: arquivos.length },
+        { id: 'empresas', label: 'Empresas Clientes', icon: Building2, count: empresas.length },
+        { id: 'empreendimentos', label: 'Empreendimentos', icon: FolderKanban, count: empreendimentos.length },
+      ],
+    },
+    {
+      title: 'Governança & Acervo',
+      items: [
+        { id: 'usuarios', label: 'Usuários & Prazos', icon: Users, count: usuarios.length },
+        { id: 'disciplinas', label: 'Disciplinas', icon: Tags, count: disciplinas.length },
+        { id: 'historico', label: 'Histórico Permanente', icon: Archive, count: historico.length },
+        { id: 'logs', label: 'Protocolo Downloads', icon: CheckCircle2, count: logs.length },
+      ],
+    },
+  ];
+
+  const currentTabInfo =
+    navGroups.flatMap((g) => g.items).find((item) => item.id === activeTab) || navGroups[0].items[0];
+
   const arquivosFiltrados = filtroEmpresa
     ? arquivos.filter((a) => a.empresaId === filtroEmpresa)
     : arquivos;
+
+  const historicoFiltrado = historico.filter(
+    (h) =>
+      h.empresaNome?.toLowerCase().includes(buscaHistorico.toLowerCase()) ||
+      h.empreendimentoNome?.toLowerCase().includes(buscaHistorico.toLowerCase()) ||
+      h.titulo?.toLowerCase().includes(buscaHistorico.toLowerCase()) ||
+      h.usuariosLiberados?.toLowerCase().includes(buscaHistorico.toLowerCase())
+  );
 
   const empreendimentosDaEmpresaSelecionada = empreendimentos.filter(
     (emp) => emp.empresaId === userEmpresaId
   );
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col">
-      <header className="bg-slate-900 text-white border-b border-slate-800 sticky top-0 z-20">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <GrupoPrecisionLogo size="md" showText={true} />
-            <span className="hidden md:inline-block ml-2 text-xs px-2.5 py-0.5 rounded bg-blue-500/20 text-blue-300 border border-blue-500/30 font-medium">
-              Gestão Técnica
-            </span>
-          </div>
+    <div className="min-h-screen bg-slate-50 flex">
+      {/* Overlay Mobile */}
+      {mobileMenuOpen && (
+        <div
+          onClick={() => setMobileMenuOpen(false)}
+          className="fixed inset-0 bg-slate-900/60 z-30 lg:hidden"
+        />
+      )}
 
-          <div className="flex items-center gap-4">
-            <div className="hidden sm:block text-right">
-              <p className="text-xs font-semibold text-white">{userProfile.nome}</p>
-              <p className="text-[11px] text-slate-400">
-                {userProfile.empresa || 'Grupo Precision'} • Administrador
+      {/* SIDEBAR ESQUERDA (ADMIN) */}
+      <aside
+        className={`fixed lg:sticky top-0 left-0 z-40 h-screen w-72 bg-slate-900 text-slate-200 flex flex-col border-r border-slate-800 transition-transform duration-200 ${
+          mobileMenuOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
+        }`}
+      >
+        <div className="h-16 px-5 flex items-center justify-between border-b border-slate-800 shrink-0">
+          <GrupoPrecisionLogo size="md" showText={true} />
+          <button
+            onClick={() => setMobileMenuOpen(false)}
+            className="lg:hidden text-slate-400 hover:text-white"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        <nav className="flex-1 overflow-y-auto px-3 py-5 space-y-6">
+          {navGroups.map((group) => (
+            <div key={group.title} className="space-y-1">
+              <p className="px-3 text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-2">
+                {group.title}
               </p>
+              {group.items.map((item) => {
+                const Icon = item.icon;
+                const active = activeTab === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    onClick={() => {
+                      setActiveTab(item.id);
+                      setMobileMenuOpen(false);
+                    }}
+                    className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-sm font-medium transition ${
+                      active
+                        ? 'bg-blue-600 text-white shadow-sm'
+                        : 'text-slate-300 hover:bg-slate-800/80 hover:text-white'
+                    }`}
+                  >
+                    <span className="flex items-center gap-2.5 truncate">
+                      <Icon className={`w-4 h-4 shrink-0 ${active ? 'text-white' : 'text-slate-400'}`} />
+                      <span className="truncate">{item.label}</span>
+                    </span>
+                    <span
+                      className={`text-[11px] px-2 py-0.5 rounded-full font-semibold ${
+                        active ? 'bg-blue-500 text-white' : 'bg-slate-800 text-slate-400'
+                      }`}
+                    >
+                      {item.count}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          ))}
+        </nav>
+
+        {/* Rodapé Perfil Admin */}
+        <div className="p-4 border-t border-slate-800 bg-slate-950/40 shrink-0">
+          <div className="flex items-center justify-between gap-2">
+            <div className="min-w-0">
+              <p className="text-xs font-bold text-white truncate">{userProfile.nome}</p>
+              <p className="text-[11px] text-slate-400 truncate">Gestão • Grupo Precision</p>
             </div>
             <button
               onClick={onLogout}
-              className="flex items-center gap-1.5 text-xs bg-slate-800 hover:bg-slate-700 text-slate-200 px-3 py-2 rounded-lg border border-slate-700 transition"
+              title="Sair do sistema"
+              className="p-2 rounded-lg bg-slate-800 hover:bg-red-600/20 hover:text-red-400 text-slate-300 border border-slate-700 transition"
             >
               <LogOut className="w-4 h-4" />
-              Sair
             </button>
           </div>
         </div>
-      </header>
+      </aside>
 
-      {/* Navegação por Abas */}
-      <div className="bg-white border-b border-slate-200">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex gap-6 overflow-x-auto">
-          {[
-            { id: 'arquivos', label: 'Entregas & Arquivos', icon: FileText, count: arquivos.length },
-            { id: 'empresas', label: 'Empresas', icon: Building2, count: empresas.length },
-            { id: 'empreendimentos', label: 'Empreendimentos', icon: FolderKanban, count: empreendimentos.length },
-            { id: 'usuarios', label: 'Usuários & Permissões', icon: Users, count: usuarios.length },
-            { id: 'disciplinas', label: 'Disciplinas', icon: Tags, count: disciplinas.length },
-            { id: 'logs', label: 'Protocolo de Downloads', icon: CheckCircle2, count: logs.length },
-          ].map((tab) => {
-            const Icon = tab.icon;
-            const active = activeTab === tab.id;
-            return (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                className={`flex items-center gap-2 py-4 border-b-2 text-sm font-medium whitespace-nowrap transition ${
-                  active
-                    ? 'border-blue-600 text-blue-600'
-                    : 'border-transparent text-slate-500 hover:text-slate-800'
-                }`}
-              >
-                <Icon className="w-4 h-4" />
-                {tab.label}
-                <span
-                  className={`text-xs px-2 py-0.5 rounded-full ${
-                    active ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-600'
-                  }`}
-                >
-                  {tab.count}
-                </span>
-              </button>
-            );
-          })}
-        </div>
-      </div>
+      {/* ÁREA DE CONTEÚDO PRINCIPAL */}
+      <div className="flex-1 flex flex-col min-w-0">
+        {/* Barra Superior (Breadcrumb + Mobile Trigger) */}
+        <header className="h-16 bg-white border-b border-slate-200 px-4 sm:px-8 flex items-center justify-between sticky top-0 z-20">
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setMobileMenuOpen(true)}
+              className="lg:hidden p-2 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50"
+            >
+              <Menu className="w-5 h-5" />
+            </button>
+            <div className="flex items-center gap-2 text-sm">
+              <span className="text-slate-400 hidden sm:inline">Administração</span>
+              <ChevronRight className="w-4 h-4 text-slate-300 hidden sm:inline" />
+              <span className="font-bold text-slate-900">{currentTabInfo.label}</span>
+            </div>
+          </div>
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full flex-1">
-        {loading ? (
-          <div className="text-center py-12 text-slate-500">Carregando dados da plataforma...</div>
-        ) : (
-          <>
-            {/* ABA 1: ENTREGAS & ARQUIVOS */}
-            {activeTab === 'arquivos' && (
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm h-fit">
-                  <h2 className="text-base font-bold text-slate-800 flex items-center gap-2 mb-4">
-                    <Upload className="w-5 h-5 text-blue-600" />
-                    Publicar Novo Arquivo
-                  </h2>
+          <div className="flex items-center gap-2 text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-full font-medium">
+            <ShieldCheck className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Limpeza Automática Ativa</span>
+          </div>
+        </header>
 
-                  <form onSubmit={handleUploadArquivo} className="space-y-4">
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-600 mb-1">
-                        Empreendimento / Obra *
-                      </label>
-                      <select
-                        required
-                        value={upEmpId}
-                        onChange={(e) => setUpEmpId(e.target.value)}
-                        className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white"
-                      >
-                        <option value="">Selecione o empreendimento...</option>
-                        {empreendimentos.map((emp) => (
-                          <option key={emp.id} value={emp.id}>
-                            {emp.nomeObra} — {emp.empresaNome}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
+        <main className="p-4 sm:p-8 max-w-7xl w-full mx-auto flex-1">
+          {loading ? (
+            <div className="text-center py-12 text-slate-500">Carregando dados da plataforma...</div>
+          ) : (
+            <>
+              {/* ABA 1: ENTREGAS & ARQUIVOS */}
+              {activeTab === 'arquivos' && (
+                <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
+                  <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm h-fit">
+                    <h2 className="text-base font-bold text-slate-800 flex items-center gap-2 mb-4">
+                      <Upload className="w-5 h-5 text-blue-600" />
+                      Publicar Novo Arquivo
+                    </h2>
 
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-600 mb-1">
-                        Título do Documento *
-                      </label>
-                      <input
-                        type="text"
-                        required
-                        value={upTitulo}
-                        onChange={(e) => setUpTitulo(e.target.value)}
-                        placeholder="Ex: Projeto Executivo de Drenagem - Prancha 01/04"
-                        className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm"
-                      />
-                    </div>
-
-                    <div className="grid grid-cols-3 gap-3">
-                      <div className="col-span-2">
-                        <div className="flex items-center justify-between mb-1">
-                          <label className="block text-xs font-semibold text-slate-600">
-                            Disciplina
-                          </label>
-                          <button
-                            type="button"
-                            onClick={() => setActiveTab('disciplinas')}
-                            className="text-[11px] font-semibold text-blue-600 hover:underline"
-                          >
-                            + Gerenciar
-                          </button>
-                        </div>
+                    <form onSubmit={handleUploadArquivo} className="space-y-4">
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-600 mb-1">
+                          Empreendimento / Obra *
+                        </label>
                         <select
-                          value={upDisciplina}
-                          onChange={(e) => setUpDisciplina(e.target.value)}
+                          required
+                          value={upEmpId}
+                          onChange={(e) => setUpEmpId(e.target.value)}
                           className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white"
                         >
-                          {disciplinas.map((d) => (
-                            <option key={d.id} value={d.nome}>
-                              {d.nome}
+                          <option value="">Selecione o empreendimento...</option>
+                          {empreendimentos.map((emp) => (
+                            <option key={emp.id} value={emp.id}>
+                              {emp.nomeObra} — {emp.empresaNome}
                             </option>
                           ))}
                         </select>
@@ -862,545 +1021,848 @@ function AdminDashboard({ userProfile, onLogout }) {
 
                       <div>
                         <label className="block text-xs font-semibold text-slate-600 mb-1">
-                          Revisão
+                          Título do Documento *
                         </label>
                         <input
                           type="text"
                           required
-                          value={upRevisao}
-                          onChange={(e) => setUpRevisao(e.target.value)}
-                          placeholder="R00"
-                          className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm uppercase"
+                          value={upTitulo}
+                          onChange={(e) => setUpTitulo(e.target.value)}
+                          placeholder="Ex: Projeto Executivo de Drenagem - Prancha 01/04"
+                          className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm"
                         />
                       </div>
-                    </div>
 
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-600 mb-1">
-                        Arquivo (PDF, DWG, ZIP, XLSX) *
-                      </label>
-                      <input
-                        id="file-input"
-                        type="file"
-                        required
-                        onChange={(e) => setUpFile(e.target.files[0])}
-                        className="w-full text-xs text-slate-600 file:mr-3 file:py-2 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 border border-slate-200 rounded-lg p-1.5"
-                      />
-                    </div>
+                      <div className="grid grid-cols-3 gap-3">
+                        <div className="col-span-2">
+                          <div className="flex items-center justify-between mb-1">
+                            <label className="block text-xs font-semibold text-slate-600">
+                              Disciplina
+                            </label>
+                            <button
+                              type="button"
+                              onClick={() => setActiveTab('disciplinas')}
+                              className="text-[11px] font-semibold text-blue-600 hover:underline"
+                            >
+                              + Gerenciar
+                            </button>
+                          </div>
+                          <select
+                            value={upDisciplina}
+                            onChange={(e) => setUpDisciplina(e.target.value)}
+                            className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white"
+                          >
+                            {disciplinas.map((d) => (
+                              <option key={d.id} value={d.nome}>
+                                {d.nome}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
 
-                    <button
-                      type="submit"
-                      disabled={uploading}
-                      className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white font-semibold rounded-lg text-sm transition flex items-center justify-center gap-2"
-                    >
-                      <Upload className="w-4 h-4" />
-                      {uploading ? 'Enviando arquivo...' : 'Disponibilizar para Equipe'}
-                    </button>
-                  </form>
-                </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-600 mb-1">
+                            Revisão
+                          </label>
+                          <input
+                            type="text"
+                            required
+                            value={upRevisao}
+                            onChange={(e) => setUpRevisao(e.target.value)}
+                            placeholder="R00"
+                            className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm uppercase"
+                          />
+                        </div>
+                      </div>
 
-                <div className="lg:col-span-2 space-y-4">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-4 rounded-xl border border-slate-200">
-                    <h2 className="text-base font-bold text-slate-800">
-                      Arquivos Publicados ({arquivosFiltrados.length})
-                    </h2>
-                    <select
-                      value={filtroEmpresa}
-                      onChange={(e) => setFiltroEmpresa(e.target.value)}
-                      className="px-3 py-1.5 rounded-lg border border-slate-300 text-sm bg-white"
-                    >
-                      <option value="">Todas as Empresas</option>
-                      {empresas.map((emp) => (
-                        <option key={emp.id} value={emp.id}>
-                          {emp.nome}
-                        </option>
-                      ))}
-                    </select>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-600 mb-1">
+                          Arquivo (PDF, DWG, ZIP, XLSX) *
+                        </label>
+                        <input
+                          id="file-input"
+                          type="file"
+                          required
+                          onChange={(e) => setUpFile(e.target.files[0])}
+                          className="w-full text-xs text-slate-600 file:mr-3 file:py-2 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 border border-slate-200 rounded-lg p-1.5"
+                        />
+                      </div>
+
+                      <button
+                        type="submit"
+                        disabled={uploading}
+                        className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white font-semibold rounded-lg text-sm transition flex items-center justify-center gap-2"
+                      >
+                        <Upload className="w-4 h-4" />
+                        {uploading ? 'Enviando arquivo...' : 'Disponibilizar para Equipe'}
+                      </button>
+                    </form>
                   </div>
 
-                  {arquivosFiltrados.length === 0 ? (
-                    <div className="bg-white p-10 rounded-xl border border-slate-200 text-center text-slate-500 text-sm">
-                      Nenhum arquivo publicado até o momento.
+                  <div className="xl:col-span-2 space-y-4">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-4 rounded-xl border border-slate-200">
+                      <h2 className="text-base font-bold text-slate-800">
+                        Arquivos Ativos no Portal ({arquivosFiltrados.length})
+                      </h2>
+                      <select
+                        value={filtroEmpresa}
+                        onChange={(e) => setFiltroEmpresa(e.target.value)}
+                        className="px-3 py-1.5 rounded-lg border border-slate-300 text-sm bg-white"
+                      >
+                        <option value="">Todas as Empresas</option>
+                        {empresas.map((emp) => (
+                          <option key={emp.id} value={emp.id}>
+                            {emp.nome}
+                          </option>
+                        ))}
+                      </select>
                     </div>
-                  ) : (
-                    <div className="space-y-3">
-                      {arquivosFiltrados.map((arq) => (
-                        <div
-                          key={arq.id}
-                          className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4"
-                        >
-                          <div className="space-y-1">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <span className="text-xs font-bold px-2 py-0.5 rounded bg-blue-100 text-blue-800">
-                                {arq.revisao}
-                              </span>
-                              <span className="text-xs font-medium px-2 py-0.5 rounded bg-slate-100 text-slate-700">
-                                {arq.disciplina}
-                              </span>
-                              <span className="text-xs text-slate-400">
-                                {arq.extensao} • {arq.tamanho}
-                              </span>
-                            </div>
-                            <h3 className="font-semibold text-slate-900 text-sm">{arq.titulo}</h3>
-                            <p className="text-xs text-slate-500">
-                              <strong>{arq.empreendimentoNome}</strong> • {arq.empresaNome}
-                            </p>
-                          </div>
 
-                          <div className="flex items-center gap-2 shrink-0">
-                            <button
-                              onClick={() => handleNotificarUsuariosDaObra(arq)}
-                              title="Notificar por e-mail os usuários autorizados nesta obra"
-                              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 transition"
-                            >
-                              <Mail className="w-3.5 h-3.5" />
-                              Notificar Equipe
-                            </button>
-                            <a
-                              href={arq.storageUrl}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="p-2 rounded-lg text-slate-600 hover:bg-slate-100 border border-slate-200"
-                              title="Baixar arquivo"
-                            >
-                              <Download className="w-4 h-4" />
-                            </a>
-                            <button
-                              onClick={() => handleExcluirArquivo(arq)}
-                              className="p-2 rounded-lg text-red-600 hover:bg-red-50 border border-red-200"
-                              title="Excluir arquivo"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
+                    {arquivosFiltrados.length === 0 ? (
+                      <div className="bg-white p-10 rounded-xl border border-slate-200 text-center text-slate-500 text-sm">
+                        Nenhum arquivo ativo no momento.
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        {arquivosFiltrados.map((arq) => (
+                          <div
+                            key={arq.id}
+                            className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+                          >
+                            <div className="space-y-1">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="text-xs font-bold px-2 py-0.5 rounded bg-blue-100 text-blue-800">
+                                  {arq.revisao}
+                                </span>
+                                <span className="text-xs font-medium px-2 py-0.5 rounded bg-slate-100 text-slate-700">
+                                  {arq.disciplina}
+                                </span>
+                                <span className="text-xs text-slate-400">
+                                  {arq.extensao} • {arq.tamanho}
+                                </span>
+                              </div>
+                              <h3 className="font-semibold text-slate-900 text-sm">{arq.titulo}</h3>
+                              <p className="text-xs text-slate-500">
+                                <strong>{arq.empreendimentoNome}</strong> • {arq.empresaNome}
+                              </p>
+                            </div>
+
+                            <div className="flex items-center gap-2 shrink-0">
+                              <button
+                                onClick={() => handleNotificarUsuariosDaObra(arq)}
+                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 transition"
+                              >
+                                <Mail className="w-3.5 h-3.5" />
+                                Notificar
+                              </button>
+                              <a
+                                href={arq.storageUrl}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="p-2 rounded-lg text-slate-600 hover:bg-slate-100 border border-slate-200"
+                                title="Baixar arquivo"
+                              >
+                                <Download className="w-4 h-4" />
+                              </a>
+                              <button
+                                onClick={() => handleExcluirArquivo(arq)}
+                                className="p-2 rounded-lg text-red-600 hover:bg-red-50 border border-red-200"
+                                title="Remover do portal ativo"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* ABA 2: EMPRESAS */}
+              {activeTab === 'empresas' && (
+                <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
+                  <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm h-fit">
+                    <h2 className="text-base font-bold text-slate-800 flex items-center gap-2 mb-4">
+                      <Plus className="w-5 h-5 text-blue-600" />
+                      Cadastrar Empresa Cliente
+                    </h2>
+                    <form onSubmit={handleCriarEmpresa} className="space-y-4">
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-600 mb-1">
+                          Razão Social / Nome Fantasia *
+                        </label>
+                        <input
+                          type="text"
+                          required
+                          value={novaEmpNome}
+                          onChange={(e) => setNovaEmpNome(e.target.value)}
+                          placeholder="Ex: Construtora Horizonte Ltda"
+                          className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-600 mb-1">
+                          CNPJ (Opcional)
+                        </label>
+                        <input
+                          type="text"
+                          value={novaEmpCnpj}
+                          onChange={(e) => setNovaEmpCnpj(e.target.value)}
+                          placeholder="00.000.000/0001-00"
+                          className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-600 mb-1">
+                          Cidade / UF
+                        </label>
+                        <input
+                          type="text"
+                          value={novaEmpCidade}
+                          onChange={(e) => setNovaEmpCidade(e.target.value)}
+                          placeholder="Ex: São José dos Campos - SP"
+                          className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm"
+                        />
+                      </div>
+                      <button
+                        type="submit"
+                        disabled={salvandoEmpresa}
+                        className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg text-sm transition"
+                      >
+                        {salvandoEmpresa ? 'Salvando...' : 'Salvar Empresa'}
+                      </button>
+                    </form>
+                  </div>
+
+                  <div className="xl:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-4 h-fit">
+                    {empresas.map((emp) => {
+                      const qtdObras = empreendimentos.filter((o) => o.empresaId === emp.id).length;
+                      const qtdUsers = usuarios.filter((u) => u.empresaId === emp.id).length;
+
+                      return (
+                        <div
+                          key={emp.id}
+                          className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-2.5"
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <h3 className="font-bold text-slate-900 text-base">{emp.nome}</h3>
+                            <span className="text-xs text-slate-400 shrink-0">{emp.cidade}</span>
+                          </div>
+                          {emp.cnpj && (
+                            <p className="text-xs font-mono text-slate-500">CNPJ: {emp.cnpj}</p>
+                          )}
+                          <div className="pt-2 flex items-center gap-3 text-xs font-medium text-slate-600 border-t border-slate-100">
+                            <span className="px-2.5 py-1 rounded bg-blue-50 text-blue-700">
+                              {qtdObras} empreendimento(s)
+                            </span>
+                            <span className="px-2.5 py-1 rounded bg-slate-100 text-slate-700">
+                              {qtdUsers} usuário(s)
+                            </span>
                           </div>
                         </div>
-                      ))}
-                    </div>
-                  )}
+                      );
+                    })}
+                  </div>
                 </div>
-              </div>
-            )}
+              )}
 
-            {/* ABA 2: EMPRESAS */}
-            {activeTab === 'empresas' && (
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm h-fit">
-                  <h2 className="text-base font-bold text-slate-800 flex items-center gap-2 mb-4">
-                    <Plus className="w-5 h-5 text-blue-600" />
-                    Cadastrar Empresa Cliente
-                  </h2>
-                  <form onSubmit={handleCriarEmpresa} className="space-y-4">
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-600 mb-1">
-                        Razão Social / Nome Fantasia *
-                      </label>
-                      <input
-                        type="text"
-                        required
-                        value={novaEmpNome}
-                        onChange={(e) => setNovaEmpNome(e.target.value)}
-                        placeholder="Ex: Construtora Horizonte Ltda"
-                        className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-600 mb-1">
-                        CNPJ (Opcional)
-                      </label>
-                      <input
-                        type="text"
-                        value={novaEmpCnpj}
-                        onChange={(e) => setNovaEmpCnpj(e.target.value)}
-                        placeholder="00.000.000/0001-00"
-                        className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-600 mb-1">
-                        Cidade / UF
-                      </label>
-                      <input
-                        type="text"
-                        value={novaEmpCidade}
-                        onChange={(e) => setNovaEmpCidade(e.target.value)}
-                        placeholder="Ex: São José dos Campos - SP"
-                        className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm"
-                      />
-                    </div>
-                    <button
-                      type="submit"
-                      disabled={salvandoEmpresa}
-                      className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg text-sm transition"
-                    >
-                      {salvandoEmpresa ? 'Salvando...' : 'Salvar Empresa'}
-                    </button>
-                  </form>
-                </div>
+              {/* ABA 3: EMPREENDIMENTOS */}
+              {activeTab === 'empreendimentos' && (
+                <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
+                  <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm h-fit">
+                    <h2 className="text-base font-bold text-slate-800 flex items-center gap-2 mb-4">
+                      <Plus className="w-5 h-5 text-blue-600" />
+                      Novo Empreendimento
+                    </h2>
+                    <form onSubmit={handleCriarEmpreendimento} className="space-y-4">
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-600 mb-1">
+                          Empresa Proprietária *
+                        </label>
+                        <select
+                          required
+                          value={empEmpresaId}
+                          onChange={(e) => setEmpEmpresaId(e.target.value)}
+                          className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white"
+                        >
+                          <option value="">Selecione a empresa...</option>
+                          {empresas.map((emp) => (
+                            <option key={emp.id} value={emp.id}>
+                              {emp.nome}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-600 mb-1">
+                          Nome do Empreendimento / Obra *
+                        </label>
+                        <input
+                          type="text"
+                          required
+                          value={empNome}
+                          onChange={(e) => setEmpNome(e.target.value)}
+                          placeholder="Ex: Loteamento Jardim das Acácias"
+                          className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-600 mb-1">
+                          Cidade / Localização
+                        </label>
+                        <input
+                          type="text"
+                          value={empLocal}
+                          onChange={(e) => setEmpLocal(e.target.value)}
+                          placeholder="Ex: Lorena - SP"
+                          className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-600 mb-1">
+                          Status
+                        </label>
+                        <select
+                          value={empStatus}
+                          onChange={(e) => setEmpStatus(e.target.value)}
+                          className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white"
+                        >
+                          <option value="Em Andamento">Em Andamento</option>
+                          <option value="Concluído / Entregue">Concluído / Entregue</option>
+                        </select>
+                      </div>
+                      <button
+                        type="submit"
+                        disabled={salvandoEmp}
+                        className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg text-sm transition"
+                      >
+                        {salvandoEmp ? 'Salvando...' : 'Cadastrar Empreendimento'}
+                      </button>
+                    </form>
+                  </div>
 
-                <div className="lg:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-4 h-fit">
-                  {empresas.map((emp) => {
-                    const qtdObras = empreendimentos.filter((o) => o.empresaId === emp.id).length;
-                    const qtdUsers = usuarios.filter((u) => u.empresaId === emp.id).length;
-
-                    return (
+                  <div className="xl:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-4 h-fit">
+                    {empreendimentos.map((emp) => (
                       <div
                         key={emp.id}
-                        className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-2.5"
+                        className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-2"
                       >
-                        <div className="flex items-start justify-between gap-2">
-                          <h3 className="font-bold text-slate-900 text-base">{emp.nome}</h3>
-                          <span className="text-xs text-slate-400 shrink-0">{emp.cidade}</span>
-                        </div>
-                        {emp.cnpj && (
-                          <p className="text-xs font-mono text-slate-500">CNPJ: {emp.cnpj}</p>
-                        )}
-                        <div className="pt-2 flex items-center gap-3 text-xs font-medium text-slate-600 border-t border-slate-100">
-                          <span className="px-2.5 py-1 rounded bg-blue-50 text-blue-700">
-                            {qtdObras} empreendimento(s)
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-blue-50 text-blue-700">
+                            {emp.status}
                           </span>
-                          <span className="px-2.5 py-1 rounded bg-slate-100 text-slate-700">
-                            {qtdUsers} usuário(s)
-                          </span>
+                          <span className="text-xs text-slate-400">{emp.localizacao}</span>
                         </div>
+                        <h3 className="font-bold text-slate-900">{emp.nomeObra}</h3>
+                        <p className="text-xs font-medium text-slate-500">{emp.empresaNome}</p>
                       </div>
-                    );
-                  })}
+                    ))}
+                  </div>
                 </div>
-              </div>
-            )}
+              )}
 
-            {/* ABA 3: EMPREENDIMENTOS */}
-            {activeTab === 'empreendimentos' && (
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm h-fit">
-                  <h2 className="text-base font-bold text-slate-800 flex items-center gap-2 mb-4">
-                    <Plus className="w-5 h-5 text-blue-600" />
-                    Novo Empreendimento
-                  </h2>
-                  <form onSubmit={handleCriarEmpreendimento} className="space-y-4">
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-600 mb-1">
-                        Empresa Proprietária *
-                      </label>
-                      <select
-                        required
-                        value={empEmpresaId}
-                        onChange={(e) => setEmpEmpresaId(e.target.value)}
-                        className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white"
-                      >
-                        <option value="">Selecione a empresa...</option>
-                        {empresas.map((emp) => (
-                          <option key={emp.id} value={emp.id}>
-                            {emp.nome}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-600 mb-1">
-                        Nome do Empreendimento / Obra *
-                      </label>
-                      <input
-                        type="text"
-                        required
-                        value={empNome}
-                        onChange={(e) => setEmpNome(e.target.value)}
-                        placeholder="Ex: Loteamento Jardim das Acácias"
-                        className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-600 mb-1">
-                        Cidade / Localização
-                      </label>
-                      <input
-                        type="text"
-                        value={empLocal}
-                        onChange={(e) => setEmpLocal(e.target.value)}
-                        placeholder="Ex: Lorena - SP"
-                        className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-600 mb-1">
-                        Status
-                      </label>
-                      <select
-                        value={empStatus}
-                        onChange={(e) => setEmpStatus(e.target.value)}
-                        className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white"
-                      >
-                        <option value="Em Andamento">Em Andamento</option>
-                        <option value="Concluído / Entregue">Concluído / Entregue</option>
-                      </select>
-                    </div>
-                    <button
-                      type="submit"
-                      disabled={salvandoEmp}
-                      className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg text-sm transition"
-                    >
-                      {salvandoEmp ? 'Salvando...' : 'Cadastrar Empreendimento'}
-                    </button>
-                  </form>
-                </div>
-
-                <div className="lg:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-4 h-fit">
-                  {empreendimentos.map((emp) => (
-                    <div
-                      key={emp.id}
-                      className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-2"
-                    >
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-blue-50 text-blue-700">
-                          {emp.status}
-                        </span>
-                        <span className="text-xs text-slate-400">{emp.localizacao}</span>
-                      </div>
-                      <h3 className="font-bold text-slate-900">{emp.nomeObra}</h3>
-                      <p className="text-xs font-medium text-slate-500">{emp.empresaNome}</p>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* ABA 4: USUÁRIOS & MATRIZ DE PERMISSÕES */}
-            {activeTab === 'usuarios' && (
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                {/* Formulário Criar Usuário com Permissões */}
-                <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm h-fit">
-                  <h2 className="text-base font-bold text-slate-800 flex items-center gap-2 mb-4">
-                    <Plus className="w-5 h-5 text-blue-600" />
-                    Novo Usuário & Permissões
-                  </h2>
-                  <form onSubmit={handleCriarUsuario} className="space-y-4">
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-600 mb-1">
-                        Empresa Vinculada *
-                      </label>
-                      <select
-                        required
-                        value={userEmpresaId}
-                        onChange={(e) => {
-                          setUserEmpresaId(e.target.value);
-                          setUserEmpsPermitidos([]);
-                        }}
-                        className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white"
-                      >
-                        <option value="">Selecione a empresa...</option>
-                        {empresas.map((emp) => (
-                          <option key={emp.id} value={emp.id}>
-                            {emp.nome}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-3">
+              {/* ABA 4: USUÁRIOS, PERMISSÕES & PRAZO LIMITE */}
+              {activeTab === 'usuarios' && (
+                <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
+                  <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm h-fit">
+                    <h2 className="text-base font-bold text-slate-800 flex items-center gap-2 mb-4">
+                      <Plus className="w-5 h-5 text-blue-600" />
+                      Novo Usuário & Prazo
+                    </h2>
+                    <form onSubmit={handleCriarUsuario} className="space-y-4">
                       <div>
                         <label className="block text-xs font-semibold text-slate-600 mb-1">
-                          Nome Completo *
+                          Empresa Vinculada *
+                        </label>
+                        <select
+                          required
+                          value={userEmpresaId}
+                          onChange={(e) => {
+                            setUserEmpresaId(e.target.value);
+                            setUserEmpsPermitidos([]);
+                          }}
+                          className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white"
+                        >
+                          <option value="">Selecione a empresa...</option>
+                          {empresas.map((emp) => (
+                            <option key={emp.id} value={emp.id}>
+                              {emp.nome}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-600 mb-1">
+                            Nome Completo *
+                          </label>
+                          <input
+                            type="text"
+                            required
+                            value={userNome}
+                            onChange={(e) => setUserNome(e.target.value)}
+                            placeholder="Eng. Carlos Silva"
+                            className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-600 mb-1">
+                            Cargo / Função
+                          </label>
+                          <input
+                            type="text"
+                            value={userCargo}
+                            onChange={(e) => setUserCargo(e.target.value)}
+                            placeholder="Ex: Cliente Avulso"
+                            className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm"
+                          />
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-600 mb-1">
+                          E-mail de Login *
+                        </label>
+                        <input
+                          type="email"
+                          required
+                          value={userEmail}
+                          onChange={(e) => setUserEmail(e.target.value)}
+                          placeholder="carlos@empresa.com.br"
+                          className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-600 mb-1">
+                          Senha Provisória (mín. 6 caracteres) *
                         </label>
                         <input
                           type="text"
                           required
-                          value={userNome}
-                          onChange={(e) => setUserNome(e.target.value)}
-                          placeholder="Eng. Carlos Silva"
+                          value={userSenha}
+                          onChange={(e) => setUserSenha(e.target.value)}
+                          placeholder="Ex: Precision@2026"
                           className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm"
                         />
                       </div>
+
+                      <div className="p-3.5 rounded-xl bg-blue-50/60 border border-blue-200/80 space-y-2.5">
+                        <label className="flex items-center gap-1.5 text-xs font-bold text-slate-800 uppercase tracking-wider">
+                          <CalendarClock className="w-4 h-4 text-blue-600" />
+                          Prazo Limite de Acesso
+                        </label>
+                        <select
+                          value={userPrazoDias}
+                          onChange={(e) => setUserPrazoDias(e.target.value)}
+                          className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white"
+                        >
+                          <option value="PERMANENTE">Sem expiração (Cliente Recorrente)</option>
+                          <option value="30">30 dias (Cliente Esporádico)</option>
+                          <option value="60">60 dias (Cliente Esporádico)</option>
+                          <option value="90">90 dias — 3 meses (Padrão Esporádico)</option>
+                          <option value="180">180 dias — 6 meses</option>
+                          <option value="CUSTOM">Definir data específica...</option>
+                        </select>
+
+                        {userPrazoDias === 'CUSTOM' && (
+                          <input
+                            type="date"
+                            required
+                            value={userDataCustom}
+                            onChange={(e) => setUserDataCustom(e.target.value)}
+                            className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white"
+                          />
+                        )}
+                      </div>
+
+                      <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-3">
+                        <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
+                          Permissão de Acesso aos Projetos
+                        </label>
+
+                        <div className="space-y-2">
+                          <label className="flex items-start gap-2.5 cursor-pointer">
+                            <input
+                              type="radio"
+                              name="nivelAcesso"
+                              checked={userAcessoTotal === true}
+                              onChange={() => setUserAcessoTotal(true)}
+                              className="mt-1 text-blue-600"
+                            />
+                            <span className="text-xs font-semibold text-slate-900">
+                              Acesso Total (Todos os Projetos)
+                            </span>
+                          </label>
+
+                          <label className="flex items-start gap-2.5 cursor-pointer">
+                            <input
+                              type="radio"
+                              name="nivelAcesso"
+                              checked={userAcessoTotal === false}
+                              onChange={() => setUserAcessoTotal(false)}
+                              className="mt-1 text-blue-600"
+                            />
+                            <span className="text-xs font-semibold text-slate-900">
+                              Acesso Restrito (Projetos Específicos)
+                            </span>
+                          </label>
+                        </div>
+
+                        {!userAcessoTotal && (
+                          <div className="pt-2 border-t border-slate-200 space-y-1.5 max-h-36 overflow-y-auto">
+                            {!userEmpresaId ? (
+                              <p className="text-xs text-amber-600">Selecione uma empresa acima.</p>
+                            ) : empreendimentosDaEmpresaSelecionada.length === 0 ? (
+                              <p className="text-xs text-slate-500">
+                                Nenhum empreendimento nesta empresa.
+                              </p>
+                            ) : (
+                              empreendimentosDaEmpresaSelecionada.map((emp) => (
+                                <label
+                                  key={emp.id}
+                                  className="flex items-center gap-2 text-xs text-slate-700 p-1.5 rounded hover:bg-white cursor-pointer"
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={userEmpsPermitidos.includes(emp.id)}
+                                    onChange={() => toggleEmpPermitidoNovo(emp.id)}
+                                    className="rounded text-blue-600"
+                                  />
+                                  <span>{emp.nomeObra}</span>
+                                </label>
+                              ))
+                            )}
+                          </div>
+                        )}
+                      </div>
+
+                      <button
+                        type="submit"
+                        disabled={salvandoUser}
+                        className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg text-sm transition"
+                      >
+                        {salvandoUser ? 'Gerando acesso...' : 'Cadastrar Usuário'}
+                      </button>
+                    </form>
+                  </div>
+
+                  <div className="xl:col-span-2 bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
+                    <div className="p-4 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
+                      <h2 className="text-sm font-bold text-slate-800">
+                        Usuários Ativos ({usuarios.length})
+                      </h2>
+                      <span className="text-xs text-slate-500">
+                        Contas vencidas são limpas automaticamente
+                      </span>
+                    </div>
+
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left border-collapse">
+                        <thead>
+                          <tr className="bg-white border-b border-slate-200 text-xs font-semibold text-slate-600 uppercase">
+                            <th className="py-3.5 px-4">Usuário / Empresa</th>
+                            <th className="py-3.5 px-4">Validade do Acesso</th>
+                            <th className="py-3.5 px-4">Projetos</th>
+                            <th className="py-3.5 px-4 text-right">Ações</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-200 text-sm">
+                          {usuarios.map((u) => {
+                            const total = u.acessoTotal !== false;
+                            const nomesPermitidos = (u.empreendimentosPermitidos || [])
+                              .map((id) => empreendimentos.find((e) => e.id === id)?.nomeObra)
+                              .filter(Boolean);
+
+                            return (
+                              <tr key={u.id} className="hover:bg-slate-50">
+                                <td className="py-3.5 px-4">
+                                  <p className="font-semibold text-slate-900">{u.nome}</p>
+                                  <p className="text-xs text-slate-500 font-mono">{u.email}</p>
+                                  <p className="text-xs font-medium text-blue-700 mt-0.5">
+                                    {u.empresa}
+                                  </p>
+                                </td>
+                                <td className="py-3.5 px-4">
+                                  {u.expiraEm ? (
+                                    <span className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-full bg-amber-50 text-amber-800 border border-amber-200">
+                                      <Clock className="w-3 h-3" />
+                                      Até {formatarDataExpiracao(u.expiraEm)}
+                                    </span>
+                                  ) : (
+                                    <span className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-full bg-slate-100 text-slate-700">
+                                      Permanente
+                                    </span>
+                                  )}
+                                </td>
+                                <td className="py-3.5 px-4">
+                                  {total ? (
+                                    <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700">
+                                      <Unlock className="w-3.5 h-3.5" />
+                                      Todos
+                                    </span>
+                                  ) : (
+                                    <span className="text-xs text-slate-700">
+                                      <Lock className="w-3 h-3 inline mr-1 text-amber-600" />
+                                      {nomesPermitidos.length} obra(s)
+                                    </span>
+                                  )}
+                                </td>
+                                <td className="py-3.5 px-4 text-right">
+                                  <button
+                                    onClick={() => abrirEditorPermissoes(u)}
+                                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 transition"
+                                  >
+                                    <Pencil className="w-3.5 h-3.5" />
+                                    Editar
+                                  </button>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* ABA 5: DISCIPLINAS */}
+              {activeTab === 'disciplinas' && (
+                <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
+                  <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm h-fit">
+                    <h2 className="text-base font-bold text-slate-800 flex items-center gap-2 mb-4">
+                      <Plus className="w-5 h-5 text-blue-600" />
+                      Nova Disciplina
+                    </h2>
+                    <form onSubmit={handleCriarDisciplina} className="space-y-4">
                       <div>
                         <label className="block text-xs font-semibold text-slate-600 mb-1">
-                          Cargo / Função
+                          Nome da Disciplina / Categoria *
                         </label>
                         <input
                           type="text"
-                          value={userCargo}
-                          onChange={(e) => setUserCargo(e.target.value)}
-                          placeholder="Ex: Coord. Obras"
-                          className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm"
+                          required
+                          value={novaDisciplinaNome}
+                          onChange={(e) => setNovaDisciplinaNome(e.target.value)}
+                          placeholder="Ex: Topografia / Sondagem"
+                          className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-blue-600"
+                        />
+                      </div>
+                      <button
+                        type="submit"
+                        disabled={salvandoDisc}
+                        className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white font-semibold rounded-lg text-sm transition flex items-center justify-center gap-2"
+                      >
+                        <Plus className="w-4 h-4" />
+                        {salvandoDisc ? 'Adicionando...' : 'Adicionar Disciplina'}
+                      </button>
+                    </form>
+                  </div>
+
+                  <div className="xl:col-span-2 bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
+                    <div className="p-4 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
+                      <h2 className="text-sm font-bold text-slate-800">
+                        Disciplinas Cadastradas ({disciplinas.length})
+                      </h2>
+                    </div>
+
+                    <div className="divide-y divide-slate-200">
+                      {disciplinas.map((disc) => {
+                        const emEdicao = editandoDiscId === disc.id;
+                        const qtdArquivos = arquivos.filter((a) => a.disciplina === disc.nome).length;
+
+                        return (
+                          <div
+                            key={disc.id}
+                            className="px-4 py-3.5 flex items-center justify-between gap-4 hover:bg-slate-50 transition"
+                          >
+                            {emEdicao ? (
+                              <div className="flex-1 flex items-center gap-2">
+                                <input
+                                  type="text"
+                                  autoFocus
+                                  value={editandoDiscNome}
+                                  onChange={(e) => setEditandoDiscNome(e.target.value)}
+                                  className="flex-1 px-3 py-1.5 rounded-lg border border-blue-400 text-sm"
+                                />
+                                <button
+                                  onClick={() => handleSalvarEdicaoDisciplina(disc)}
+                                  className="p-2 rounded-lg bg-emerald-600 text-white"
+                                >
+                                  <Check className="w-4 h-4" />
+                                </button>
+                                <button
+                                  onClick={() => setEditandoDiscId(null)}
+                                  className="p-2 rounded-lg bg-slate-200 text-slate-700"
+                                >
+                                  <X className="w-4 h-4" />
+                                </button>
+                              </div>
+                            ) : (
+                              <>
+                                <div className="flex items-center gap-3">
+                                  <span className="font-medium text-sm text-slate-800">
+                                    {disc.nome}
+                                  </span>
+                                  <span className="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-500">
+                                    {qtdArquivos} arquivo(s)
+                                  </span>
+                                </div>
+                                <div className="flex items-center gap-1.5">
+                                  <button
+                                    onClick={() => {
+                                      setEditandoDiscId(disc.id);
+                                      setEditandoDiscNome(disc.nome);
+                                    }}
+                                    className="p-2 rounded-lg text-slate-600 hover:bg-blue-50 hover:text-blue-600"
+                                  >
+                                    <Pencil className="w-4 h-4" />
+                                  </button>
+                                  <button
+                                    onClick={() => handleExcluirDisciplina(disc)}
+                                    className="p-2 rounded-lg text-slate-600 hover:bg-red-50 hover:text-red-600"
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                  </button>
+                                </div>
+                              </>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* ABA 6: HISTÓRICO PERMANENTE */}
+              {activeTab === 'historico' && (
+                <div className="space-y-6">
+                  <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                    <div>
+                      <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                        <Archive className="w-5 h-5 text-blue-600" />
+                        Acervo Histórico Permanente de Entregas
+                      </h2>
+                      <p className="text-xs text-slate-500 mt-1">
+                        Registro definitivo de todas as entregas realizadas. Quando o prazo de um cliente expira, os arquivos pesados são removidos automaticamente do Storage, mas este histórico permanece salvo.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
+                    <div className="p-4 border-b border-slate-200 bg-slate-50 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                      <span className="text-xs font-bold text-slate-700 uppercase">
+                        Registros ({historicoFiltrado.length})
+                      </span>
+                      <div className="relative w-full sm:w-72">
+                        <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+                        <input
+                          type="text"
+                          value={buscaHistorico}
+                          onChange={(e) => setBuscaHistorico(e.target.value)}
+                          placeholder="Buscar empresa, obra, arquivo..."
+                          className="w-full pl-9 pr-3 py-1.5 rounded-lg border border-slate-300 text-xs bg-white"
                         />
                       </div>
                     </div>
 
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-600 mb-1">
-                        E-mail de Login *
-                      </label>
-                      <input
-                        type="email"
-                        required
-                        value={userEmail}
-                        onChange={(e) => setUserEmail(e.target.value)}
-                        placeholder="carlos@empresa.com.br"
-                        className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm"
-                      />
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left border-collapse">
+                        <thead>
+                          <tr className="border-b border-slate-200 text-xs font-semibold text-slate-500 uppercase bg-white">
+                            <th className="py-3 px-4">Data Entrega</th>
+                            <th className="py-3 px-4">Empresa / Empreendimento</th>
+                            <th className="py-3 px-4">Arquivo / Revisão</th>
+                            <th className="py-3 px-4">Usuários Liberados</th>
+                            <th className="py-3 px-4">Status Storage</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-200 text-xs">
+                          {historicoFiltrado.map((h) => {
+                            const dataPub = h.dataPublicacao?.seconds
+                              ? new Date(h.dataPublicacao.seconds * 1000).toLocaleDateString('pt-BR')
+                              : 'Registrado';
+                            const ativo = h.statusArquivo === 'Ativo no Portal';
+
+                            return (
+                              <tr key={h.id} className="hover:bg-slate-50">
+                                <td className="py-3 px-4 font-mono text-slate-600">{dataPub}</td>
+                                <td className="py-3 px-4">
+                                  <p className="font-bold text-slate-900">{h.empresaNome}</p>
+                                  <p className="text-slate-500">{h.empreendimentoNome}</p>
+                                </td>
+                                <td className="py-3 px-4">
+                                  <p className="font-semibold text-slate-800">
+                                    [{h.revisao}] {h.titulo}
+                                  </p>
+                                  <p className="font-mono text-[11px] text-slate-400">
+                                    {h.nomeArquivoOriginal} ({h.tamanho})
+                                  </p>
+                                </td>
+                                <td className="py-3 px-4 text-slate-600 max-w-xs">
+                                  {h.usuariosLiberados}
+                                </td>
+                                <td className="py-3 px-4">
+                                  <span
+                                    className={`px-2 py-0.5 rounded-full font-semibold ${
+                                      ativo
+                                        ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                        : 'bg-slate-100 text-slate-600'
+                                    }`}
+                                  >
+                                    {h.statusArquivo}
+                                  </span>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
                     </div>
-
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-600 mb-1">
-                        Senha Provisória (mín. 6 caracteres) *
-                      </label>
-                      <input
-                        type="text"
-                        required
-                        value={userSenha}
-                        onChange={(e) => setUserSenha(e.target.value)}
-                        placeholder="Ex: Precision@2026"
-                        className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm"
-                      />
-                    </div>
-
-                    {/* Seletor de Nível de Permissão */}
-                    <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-3">
-                      <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
-                        Permissão de Acesso aos Projetos
-                      </label>
-
-                      <div className="space-y-2">
-                        <label className="flex items-start gap-2.5 cursor-pointer">
-                          <input
-                            type="radio"
-                            name="nivelAcesso"
-                            checked={userAcessoTotal === true}
-                            onChange={() => setUserAcessoTotal(true)}
-                            className="mt-1 text-blue-600"
-                          />
-                          <div className="text-xs">
-                            <span className="font-semibold text-slate-900 block">
-                              Acesso Total (Todos os Projetos)
-                            </span>
-                            <span className="text-slate-500">
-                              Visualiza todos os empreendimentos atuais e futuros desta empresa.
-                            </span>
-                          </div>
-                        </label>
-
-                        <label className="flex items-start gap-2.5 cursor-pointer">
-                          <input
-                            type="radio"
-                            name="nivelAcesso"
-                            checked={userAcessoTotal === false}
-                            onChange={() => setUserAcessoTotal(false)}
-                            className="mt-1 text-blue-600"
-                          />
-                          <div className="text-xs">
-                            <span className="font-semibold text-slate-900 block">
-                              Acesso Restrito (Projetos Específicos)
-                            </span>
-                            <span className="text-slate-500">
-                              Acessa apenas os empreendimentos marcados abaixo.
-                            </span>
-                          </div>
-                        </label>
-                      </div>
-
-                      {!userAcessoTotal && (
-                        <div className="pt-2 border-t border-slate-200 space-y-1.5 max-h-40 overflow-y-auto">
-                          {!userEmpresaId ? (
-                            <p className="text-xs text-amber-600">
-                              Selecione uma empresa acima para listar os projetos.
-                            </p>
-                          ) : empreendimentosDaEmpresaSelecionada.length === 0 ? (
-                            <p className="text-xs text-slate-500">
-                              Nenhum empreendimento cadastrado para esta empresa ainda.
-                            </p>
-                          ) : (
-                            empreendimentosDaEmpresaSelecionada.map((emp) => (
-                              <label
-                                key={emp.id}
-                                className="flex items-center gap-2 text-xs text-slate-700 p-1.5 rounded hover:bg-white cursor-pointer"
-                              >
-                                <input
-                                  type="checkbox"
-                                  checked={userEmpsPermitidos.includes(emp.id)}
-                                  onChange={() => toggleEmpPermitidoNovo(emp.id)}
-                                  className="rounded text-blue-600"
-                                />
-                                <span>{emp.nomeObra}</span>
-                              </label>
-                            ))
-                          )}
-                        </div>
-                      )}
-                    </div>
-
-                    <button
-                      type="submit"
-                      disabled={salvandoUser}
-                      className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg text-sm transition"
-                    >
-                      {salvandoUser ? 'Gerando acesso...' : 'Cadastrar Usuário'}
-                    </button>
-                  </form>
+                  </div>
                 </div>
+              )}
 
-                {/* Lista de Usuários e Gestão de Permissões */}
-                <div className="lg:col-span-2 bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
+              {/* ABA 7: PROTOCOLO DE DOWNLOADS */}
+              {activeTab === 'logs' && (
+                <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
                   <div className="p-4 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
                     <h2 className="text-sm font-bold text-slate-800">
-                      Usuários Cadastrados por Empresa ({usuarios.length})
+                      Registro Oficial de Recebimento de Arquivos • Grupo Precision
                     </h2>
+                    <span className="text-xs text-slate-500">Total: {logs.length} downloads</span>
                   </div>
-
                   <div className="overflow-x-auto">
                     <table className="w-full text-left border-collapse">
                       <thead>
-                        <tr className="bg-white border-b border-slate-200 text-xs font-semibold text-slate-600 uppercase">
-                          <th className="py-3.5 px-4">Usuário / Cargo</th>
-                          <th className="py-3.5 px-4">Empresa</th>
-                          <th className="py-3.5 px-4">Permissão de Projetos</th>
-                          <th className="py-3.5 px-4 text-right">Ações</th>
+                        <tr className="border-b border-slate-200 text-xs font-semibold text-slate-500 uppercase bg-white">
+                          <th className="py-3 px-4">Data / Hora</th>
+                          <th className="py-3 px-4">Empresa / Usuário</th>
+                          <th className="py-3 px-4">Empreendimento</th>
+                          <th className="py-3 px-4">Arquivo Baixado</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-200 text-sm">
-                        {usuarios.map((u) => {
-                          const total = u.acessoTotal !== false;
-                          const nomesPermitidos = (u.empreendimentosPermitidos || [])
-                            .map((id) => empreendimentos.find((e) => e.id === id)?.nomeObra)
-                            .filter(Boolean);
-
+                        {logs.map((log) => {
+                          const dataFormatada = log.baixadoEm?.seconds
+                            ? new Date(log.baixadoEm.seconds * 1000).toLocaleString('pt-BR')
+                            : 'Registrado';
                           return (
-                            <tr key={u.id} className="hover:bg-slate-50">
-                              <td className="py-3.5 px-4">
-                                <p className="font-semibold text-slate-900">{u.nome}</p>
-                                <p className="text-xs text-slate-500 font-mono">{u.email}</p>
-                                {u.cargo && (
-                                  <span className="inline-block mt-0.5 text-[11px] text-slate-400">
-                                    {u.cargo}
-                                  </span>
-                                )}
+                            <tr key={log.id} className="hover:bg-slate-50">
+                              <td className="py-3 px-4 text-xs font-mono text-slate-600">
+                                {dataFormatada}
                               </td>
-                              <td className="py-3.5 px-4 font-medium text-slate-700">
-                                {u.empresa}
+                              <td className="py-3 px-4 font-medium text-slate-900">
+                                {log.clienteNome}
                               </td>
-                              <td className="py-3.5 px-4">
-                                {total ? (
-                                  <span className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
-                                    <Unlock className="w-3 h-3" />
-                                    Acesso Total
-                                  </span>
-                                ) : (
-                                  <div className="space-y-1">
-                                    <span className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200">
-                                      <Lock className="w-3 h-3" />
-                                      Restrito ({nomesPermitidos.length})
-                                    </span>
-                                    <p className="text-[11px] text-slate-500 max-w-xs truncate">
-                                      {nomesPermitidos.join(', ') || 'Nenhuma obra vinculada'}
-                                    </p>
-                                  </div>
-                                )}
-                              </td>
-                              <td className="py-3.5 px-4 text-right">
-                                <button
-                                  onClick={() => abrirEditorPermissoes(u)}
-                                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 transition"
-                                >
-                                  <Pencil className="w-3.5 h-3.5" />
-                                  Permissões
-                                </button>
+                              <td className="py-3 px-4 text-slate-600">{log.empreendimentoNome}</td>
+                              <td className="py-3 px-4 text-blue-700 font-medium">
+                                {log.arquivoNome}
                               </td>
                             </tr>
                           );
@@ -1409,173 +1871,19 @@ function AdminDashboard({ userProfile, onLogout }) {
                     </table>
                   </div>
                 </div>
-              </div>
-            )}
+              )}
+            </>
+          )}
+        </main>
+      </div>
 
-            {/* ABA 5: DISCIPLINAS */}
-            {activeTab === 'disciplinas' && (
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm h-fit">
-                  <h2 className="text-base font-bold text-slate-800 flex items-center gap-2 mb-4">
-                    <Plus className="w-5 h-5 text-blue-600" />
-                    Nova Disciplina
-                  </h2>
-                  <form onSubmit={handleCriarDisciplina} className="space-y-4">
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-600 mb-1">
-                        Nome da Disciplina / Categoria *
-                      </label>
-                      <input
-                        type="text"
-                        required
-                        value={novaDisciplinaNome}
-                        onChange={(e) => setNovaDisciplinaNome(e.target.value)}
-                        placeholder="Ex: Topografia / Sondagem"
-                        className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-blue-600"
-                      />
-                    </div>
-                    <button
-                      type="submit"
-                      disabled={salvandoDisc}
-                      className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white font-semibold rounded-lg text-sm transition flex items-center justify-center gap-2"
-                    >
-                      <Plus className="w-4 h-4" />
-                      {salvandoDisc ? 'Adicionando...' : 'Adicionar Disciplina'}
-                    </button>
-                  </form>
-                </div>
-
-                <div className="lg:col-span-2 bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
-                  <div className="p-4 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
-                    <h2 className="text-sm font-bold text-slate-800">
-                      Disciplinas Cadastradas ({disciplinas.length})
-                    </h2>
-                  </div>
-
-                  <div className="divide-y divide-slate-200">
-                    {disciplinas.map((disc) => {
-                      const emEdicao = editandoDiscId === disc.id;
-                      const qtdArquivos = arquivos.filter((a) => a.disciplina === disc.nome).length;
-
-                      return (
-                        <div
-                          key={disc.id}
-                          className="px-4 py-3.5 flex items-center justify-between gap-4 hover:bg-slate-50 transition"
-                        >
-                          {emEdicao ? (
-                            <div className="flex-1 flex items-center gap-2">
-                              <input
-                                type="text"
-                                autoFocus
-                                value={editandoDiscNome}
-                                onChange={(e) => setEditandoDiscNome(e.target.value)}
-                                className="flex-1 px-3 py-1.5 rounded-lg border border-blue-400 text-sm"
-                              />
-                              <button
-                                onClick={() => handleSalvarEdicaoDisciplina(disc)}
-                                className="p-2 rounded-lg bg-emerald-600 text-white"
-                              >
-                                <Check className="w-4 h-4" />
-                              </button>
-                              <button
-                                onClick={() => setEditandoDiscId(null)}
-                                className="p-2 rounded-lg bg-slate-200 text-slate-700"
-                              >
-                                <X className="w-4 h-4" />
-                              </button>
-                            </div>
-                          ) : (
-                            <>
-                              <div className="flex items-center gap-3">
-                                <span className="font-medium text-sm text-slate-800">
-                                  {disc.nome}
-                                </span>
-                                <span className="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-500">
-                                  {qtdArquivos} arquivo(s)
-                                </span>
-                              </div>
-                              <div className="flex items-center gap-1.5">
-                                <button
-                                  onClick={() => {
-                                    setEditandoDiscId(disc.id);
-                                    setEditandoDiscNome(disc.nome);
-                                  }}
-                                  className="p-2 rounded-lg text-slate-600 hover:bg-blue-50 hover:text-blue-600"
-                                >
-                                  <Pencil className="w-4 h-4" />
-                                </button>
-                                <button
-                                  onClick={() => handleExcluirDisciplina(disc)}
-                                  className="p-2 rounded-lg text-slate-600 hover:bg-red-50 hover:text-red-600"
-                                >
-                                  <Trash2 className="w-4 h-4" />
-                                </button>
-                              </div>
-                            </>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* ABA 6: PROTOCOLO DE DOWNLOADS */}
-            {activeTab === 'logs' && (
-              <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-                <div className="p-4 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
-                  <h2 className="text-sm font-bold text-slate-800">
-                    Registro Oficial de Recebimento de Arquivos • Grupo Precision
-                  </h2>
-                  <span className="text-xs text-slate-500">Total: {logs.length} downloads</span>
-                </div>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left border-collapse">
-                    <thead>
-                      <tr className="border-b border-slate-200 text-xs font-semibold text-slate-500 uppercase bg-white">
-                        <th className="py-3 px-4">Data / Hora</th>
-                        <th className="py-3 px-4">Empresa / Usuário</th>
-                        <th className="py-3 px-4">Empreendimento</th>
-                        <th className="py-3 px-4">Arquivo Baixado</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-200 text-sm">
-                      {logs.map((log) => {
-                        const dataFormatada = log.baixadoEm?.seconds
-                          ? new Date(log.baixadoEm.seconds * 1000).toLocaleString('pt-BR')
-                          : 'Registrado';
-                        return (
-                          <tr key={log.id} className="hover:bg-slate-50">
-                            <td className="py-3 px-4 text-xs font-mono text-slate-600">
-                              {dataFormatada}
-                            </td>
-                            <td className="py-3 px-4 font-medium text-slate-900">
-                              {log.clienteNome}
-                            </td>
-                            <td className="py-3 px-4 text-slate-600">{log.empreendimentoNome}</td>
-                            <td className="py-3 px-4 text-blue-700 font-medium">
-                              {log.arquivoNome}
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
-          </>
-        )}
-      </main>
-
-      {/* MODAL DE EDIÇÃO DE PERMISSÕES DE USUÁRIO */}
+      {/* MODAL DE EDIÇÃO DE PERMISSÕES E PRAZO */}
       {editUserModal && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-md w-full border border-slate-200 shadow-2xl overflow-hidden">
             <div className="px-6 py-4 bg-slate-900 text-white flex items-center justify-between">
               <div>
-                <h3 className="font-bold text-base">Gerenciar Permissões</h3>
+                <h3 className="font-bold text-base">Permissões & Prazo de Acesso</h3>
                 <p className="text-xs text-slate-400">
                   {editUserModal.nome} • {editUserModal.empresa}
                 </p>
@@ -1589,6 +1897,32 @@ function AdminDashboard({ userProfile, onLogout }) {
             </div>
 
             <div className="p-6 space-y-4">
+              <div className="p-3 rounded-xl bg-blue-50/70 border border-blue-200 space-y-2">
+                <label className="block text-xs font-bold text-slate-800">
+                  Validade Atual: {formatarDataExpiracao(editUserModal.expiraEm)}
+                </label>
+                <select
+                  value={editPrazoModo}
+                  onChange={(e) => setEditPrazoModo(e.target.value)}
+                  className="w-full px-3 py-1.5 rounded-lg border border-slate-300 text-xs bg-white"
+                >
+                  <option value="MANTER">Manter prazo atual</option>
+                  <option value="PERMANENTE">Tornar Permanente (Sem expiração)</option>
+                  <option value="30">Renovar por +30 dias a partir de hoje</option>
+                  <option value="60">Renovar por +60 dias a partir de hoje</option>
+                  <option value="90">Renovar por +90 dias (3 meses) a partir de hoje</option>
+                  <option value="CUSTOM">Definir nova data específica...</option>
+                </select>
+                {editPrazoModo === 'CUSTOM' && (
+                  <input
+                    type="date"
+                    value={editDataCustom}
+                    onChange={(e) => setEditDataCustom(e.target.value)}
+                    className="w-full px-3 py-1.5 rounded-lg border border-slate-300 text-xs bg-white"
+                  />
+                )}
+              </div>
+
               <label className="flex items-start gap-2.5 p-3 rounded-xl border border-slate-200 cursor-pointer hover:bg-slate-50">
                 <input
                   type="radio"
@@ -1596,14 +1930,9 @@ function AdminDashboard({ userProfile, onLogout }) {
                   onChange={() => setEditAcessoTotal(true)}
                   className="mt-1 text-blue-600"
                 />
-                <div className="text-xs">
-                  <span className="font-bold text-slate-900 block">
-                    Acesso Total (Todos os Empreendimentos)
-                  </span>
-                  <span className="text-slate-500">
-                    Libera todos os projetos atuais e futuros de {editUserModal.empresa}.
-                  </span>
-                </div>
+                <span className="text-xs font-bold text-slate-900">
+                  Acesso Total (Todos os Empreendimentos)
+                </span>
               </label>
 
               <label className="flex items-start gap-2.5 p-3 rounded-xl border border-slate-200 cursor-pointer hover:bg-slate-50">
@@ -1613,18 +1942,13 @@ function AdminDashboard({ userProfile, onLogout }) {
                   onChange={() => setEditAcessoTotal(false)}
                   className="mt-1 text-blue-600"
                 />
-                <div className="text-xs">
-                  <span className="font-bold text-slate-900 block">
-                    Acesso Restrito (Selecionar Obras)
-                  </span>
-                  <span className="text-slate-500">
-                    Escolha abaixo quais empreendimentos este usuário pode visualizar:
-                  </span>
-                </div>
+                <span className="text-xs font-bold text-slate-900">
+                  Acesso Restrito (Selecionar Obras)
+                </span>
               </label>
 
               {!editAcessoTotal && (
-                <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 space-y-2 max-h-48 overflow-y-auto">
+                <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 space-y-2 max-h-40 overflow-y-auto">
                   {empreendimentos
                     .filter((emp) => emp.empresaId === editUserModal.empresaId)
                     .map((emp) => (
@@ -1656,28 +1980,27 @@ function AdminDashboard({ userProfile, onLogout }) {
                   disabled={salvandoPermissoes}
                   className="px-5 py-2 rounded-lg text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white"
                 >
-                  {salvandoPermissoes ? 'Salvando...' : 'Salvar Permissões'}
+                  {salvandoPermissoes ? 'Salvando...' : 'Salvar Alterações'}
                 </button>
               </div>
             </div>
           </div>
         </div>
       )}
-
-      <footer className="bg-white border-t border-slate-200 py-4 text-center text-xs text-slate-400">
-        PrecManager • Sistema de Entrega Técnica de Projetos — <strong>Grupo Precision</strong>
-      </footer>
     </div>
   );
 }
 
 /* ============================================================================
-   PAINEL DO CLIENTE (ÁREA DE DOWNLOADS COM FILTRO DE PERMISSÃO)
+   PAINEL DO CLIENTE (SIDEBAR LATERAL COM ITENS = PROJETOS E SUBITENS = DISCIPLINAS)
 ============================================================================ */
 function ClientDashboard({ userProfile, onLogout }) {
   const [empreendimentos, setEmpreendimentos] = useState([]);
   const [arquivos, setArquivos] = useState([]);
   const [selectedEmp, setSelectedEmp] = useState('TODOS');
+  const [selectedDisc, setSelectedDisc] = useState('TODAS');
+  const [expandedEmps, setExpandedEmps] = useState({});
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [busca, setBusca] = useState('');
   const [loading, setLoading] = useState(true);
 
@@ -1697,12 +2020,17 @@ function ClientDashboard({ userProfile, onLogout }) {
         const snapEmps = await getDocs(qEmps);
         let listaEmps = snapEmps.docs.map((d) => ({ id: d.id, ...d.data() }));
 
-        // Aplica filtro de permissão do usuário
         if (userProfile.acessoTotal !== true) {
           const permitidos = userProfile.empreendimentosPermitidos || [];
           listaEmps = listaEmps.filter((emp) => permitidos.includes(emp.id));
         }
+        listaEmps.sort((a, b) => a.nomeObra.localeCompare(b.nomeObra, 'pt-BR'));
         setEmpreendimentos(listaEmps);
+
+        // Expande automaticamente o primeiro empreendimento na árvore lateral
+        if (listaEmps.length > 0) {
+          setExpandedEmps({ [listaEmps[0].id]: true });
+        }
 
         const idsPermitidos = listaEmps.map((e) => e.id);
 
@@ -1746,160 +2074,366 @@ function ClientDashboard({ userProfile, onLogout }) {
     window.open(arq.storageUrl, '_blank');
   };
 
+  const toggleExpandEmp = (empId) => {
+    setExpandedEmps((prev) => ({
+      ...prev,
+      [empId]: !prev[empId],
+    }));
+  };
+
+  const selecionarTodosProjetos = () => {
+    setSelectedEmp('TODOS');
+    setSelectedDisc('TODAS');
+    setMobileMenuOpen(false);
+  };
+
+  const selecionarEmpreendimento = (empId) => {
+    setSelectedEmp(empId);
+    setSelectedDisc('TODAS');
+    setExpandedEmps((prev) => ({ ...prev, [empId]: true }));
+    setMobileMenuOpen(false);
+  };
+
+  const selecionarDisciplina = (empId, discNome) => {
+    setSelectedEmp(empId);
+    setSelectedDisc(discNome);
+    setMobileMenuOpen(false);
+  };
+
   const arquivosVisiveis = arquivos.filter((arq) => {
     const matchEmp = selectedEmp === 'TODOS' || arq.empreendimentoId === selectedEmp;
+    const matchDisc = selectedDisc === 'TODAS' || arq.disciplina === selectedDisc;
     const matchBusca =
       arq.titulo.toLowerCase().includes(busca.toLowerCase()) ||
-      arq.disciplina.toLowerCase().includes(busca.toLowerCase());
-    return matchEmp && matchBusca;
+      arq.disciplina.toLowerCase().includes(busca.toLowerCase()) ||
+      arq.nomeArquivo.toLowerCase().includes(busca.toLowerCase());
+    return matchEmp && matchDisc && matchBusca;
   });
 
-  return (
-    <div className="min-h-screen bg-slate-50 flex flex-col">
-      <header className="bg-slate-900 text-white border-b border-slate-800 sticky top-0 z-20">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-          <GrupoPrecisionLogo size="md" showText={true} />
+  const empAtualObj = empreendimentos.find((e) => e.id === selectedEmp);
 
-          <div className="flex items-center gap-4">
-            <div className="text-right hidden sm:block">
-              <p className="text-xs font-semibold text-white">{userProfile.empresa}</p>
-              <p className="text-[11px] text-slate-400">
+  return (
+    <div className="min-h-screen bg-slate-50 flex">
+      {/* Overlay Mobile */}
+      {mobileMenuOpen && (
+        <div
+          onClick={() => setMobileMenuOpen(false)}
+          className="fixed inset-0 bg-slate-900/60 z-30 lg:hidden"
+        />
+      )}
+
+      {/* SIDEBAR LATERAL EM ÁRVORE (EMPREENDIMENTOS -> DISCIPLINAS) */}
+      <aside
+        className={`fixed lg:sticky top-0 left-0 z-40 h-screen w-72 bg-slate-900 text-slate-200 flex flex-col border-r border-slate-800 transition-transform duration-200 ${
+          mobileMenuOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
+        }`}
+      >
+        <div className="h-16 px-5 flex items-center justify-between border-b border-slate-800 shrink-0">
+          <GrupoPrecisionLogo size="md" showText={true} />
+          <button
+            onClick={() => setMobileMenuOpen(false)}
+            className="lg:hidden text-slate-400 hover:text-white"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Árvore de Navegação */}
+        <nav className="flex-1 overflow-y-auto px-3 py-5 space-y-4">
+          <div>
+            <p className="px-3 text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-2">
+              Acervo Técnico
+            </p>
+
+            {/* Item Raiz: Todos os Projetos */}
+            <button
+              onClick={selecionarTodosProjetos}
+              className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-sm font-medium transition ${
+                selectedEmp === 'TODOS'
+                  ? 'bg-blue-600 text-white shadow-sm'
+                  : 'text-slate-300 hover:bg-slate-800/80 hover:text-white'
+              }`}
+            >
+              <span className="flex items-center gap-2.5">
+                <Layers className="w-4 h-4 shrink-0" />
+                <span>Todos os Projetos</span>
+              </span>
+              <span
+                className={`text-[11px] px-2 py-0.5 rounded-full font-semibold ${
+                  selectedEmp === 'TODOS' ? 'bg-blue-500 text-white' : 'bg-slate-800 text-slate-400'
+                }`}
+              >
+                {arquivos.length}
+              </span>
+            </button>
+          </div>
+
+          {/* Lista de Empreendimentos (Itens) e Disciplinas (Subitens) */}
+          <div className="space-y-1">
+            <p className="px-3 text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-2">
+              Empreendimentos ({empreendimentos.length})
+            </p>
+
+            {empreendimentos.map((emp) => {
+              const arqsDoEmp = arquivos.filter((a) => a.empreendimentoId === emp.id);
+              const disciplinasDoEmp = [...new Set(arqsDoEmp.map((a) => a.disciplina))].sort(
+                (a, b) => a.localeCompare(b, 'pt-BR')
+              );
+              const isExpanded = !!expandedEmps[emp.id];
+              const isEmpSelected = selectedEmp === emp.id && selectedDisc === 'TODAS';
+
+              return (
+                <div key={emp.id} className="space-y-1">
+                  {/* Item Principal: Empreendimento */}
+                  <div
+                    className={`flex items-center rounded-xl transition ${
+                      isEmpSelected
+                        ? 'bg-blue-600 text-white shadow-sm'
+                        : selectedEmp === emp.id
+                        ? 'bg-slate-800/90 text-white'
+                        : 'text-slate-300 hover:bg-slate-800/60 hover:text-white'
+                    }`}
+                  >
+                    <button
+                      onClick={() => toggleExpandEmp(emp.id)}
+                      className="p-2.5 text-slate-400 hover:text-white shrink-0"
+                      title={isExpanded ? 'Recolher disciplinas' : 'Expandir disciplinas'}
+                    >
+                      {isExpanded ? (
+                        <ChevronDown className="w-3.5 h-3.5" />
+                      ) : (
+                        <ChevronRight className="w-3.5 h-3.5" />
+                      )}
+                    </button>
+
+                    <button
+                      onClick={() => selecionarEmpreendimento(emp.id)}
+                      className="flex-1 flex items-center justify-between py-2.5 pr-3 text-left text-sm font-medium min-w-0"
+                    >
+                      <span className="flex items-center gap-2 truncate">
+                        {isExpanded ? (
+                          <FolderOpen className="w-4 h-4 shrink-0 text-blue-400" />
+                        ) : (
+                          <Folder className="w-4 h-4 shrink-0 text-slate-400" />
+                        )}
+                        <span className="truncate">{emp.nomeObra}</span>
+                      </span>
+                      <span
+                        className={`ml-2 text-[11px] px-1.5 py-0.5 rounded-full font-semibold shrink-0 ${
+                          isEmpSelected ? 'bg-blue-500 text-white' : 'bg-slate-800 text-slate-400'
+                        }`}
+                      >
+                        {arqsDoEmp.length}
+                      </span>
+                    </button>
+                  </div>
+
+                  {/* Subitens: Disciplinas do Empreendimento */}
+                  {isExpanded && disciplinasDoEmp.length > 0 && (
+                    <div className="ml-5 pl-3 border-l border-slate-700/80 space-y-0.5 py-1">
+                      {disciplinasDoEmp.map((discNome) => {
+                        const qtdDisc = arqsDoEmp.filter((a) => a.disciplina === discNome).length;
+                        const isDiscSelected =
+                          selectedEmp === emp.id && selectedDisc === discNome;
+
+                        return (
+                          <button
+                            key={discNome}
+                            onClick={() => selecionarDisciplina(emp.id, discNome)}
+                            className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition ${
+                              isDiscSelected
+                                ? 'bg-blue-600/90 text-white font-semibold'
+                                : 'text-slate-400 hover:bg-slate-800/60 hover:text-slate-200'
+                            }`}
+                          >
+                            <span className="truncate">{discNome}</span>
+                            <span className="ml-2 text-[10px] opacity-80 shrink-0">{qtdDisc}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </nav>
+
+        {/* Rodapé do Usuário na Sidebar */}
+        <div className="p-4 border-t border-slate-800 bg-slate-950/40 shrink-0">
+          <div className="flex items-center justify-between gap-2">
+            <div className="min-w-0">
+              <p className="text-xs font-bold text-white truncate">{userProfile.empresa}</p>
+              <p className="text-[11px] text-slate-400 truncate">
                 {userProfile.nome} {userProfile.cargo ? `• ${userProfile.cargo}` : ''}
               </p>
             </div>
             <button
               onClick={onLogout}
-              className="flex items-center gap-1.5 text-xs bg-slate-800 hover:bg-slate-700 text-slate-200 px-3 py-2 rounded-lg border border-slate-700 transition"
+              title="Sair do portal"
+              className="p-2 rounded-lg bg-slate-800 hover:bg-red-600/20 hover:text-red-400 text-slate-300 border border-slate-700 transition"
             >
               <LogOut className="w-4 h-4" />
-              Sair
             </button>
           </div>
         </div>
-      </header>
+      </aside>
 
-      <div className="bg-white border-b border-slate-200">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-          <div className="flex items-center gap-2 text-xs font-semibold text-blue-600 uppercase tracking-wider mb-1">
-            <span>Acervo Técnico • Grupo Precision</span>
-          </div>
-          <h1 className="text-xl font-bold text-slate-900">
-            Central de Projetos e Entregas Técnicas
-          </h1>
-          <p className="text-sm text-slate-500 mt-1">
-            Selecione um empreendimento liberado para visualizar e baixar os arquivos finalizados.
-          </p>
-
-          <div className="mt-5 flex gap-3 overflow-x-auto pb-2">
-            <button
-              onClick={() => setSelectedEmp('TODOS')}
-              className={`px-4 py-2.5 rounded-xl border text-left shrink-0 transition ${
-                selectedEmp === 'TODOS'
-                  ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
-                  : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
-              }`}
-            >
-              <p className="text-xs font-bold">Todos os Empreendimentos</p>
-              <p className="text-[11px] opacity-80">{arquivos.length} arquivo(s)</p>
-            </button>
-
-            {empreendimentos.map((emp) => {
-              const qtd = arquivos.filter((a) => a.empreendimentoId === emp.id).length;
-              const active = selectedEmp === emp.id;
-              return (
-                <button
-                  key={emp.id}
-                  onClick={() => setSelectedEmp(emp.id)}
-                  className={`px-4 py-2.5 rounded-xl border text-left shrink-0 transition ${
-                    active
-                      ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
-                      : 'bg-white text-slate-800 border-slate-200 hover:border-blue-300'
-                  }`}
-                >
-                  <p className="text-xs font-bold">{emp.nomeObra}</p>
-                  <p className="text-[11px] opacity-80">
-                    {emp.localizacao || 'Projeto Técnico'} • {qtd} arquivo(s)
-                  </p>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      </div>
-
-      <main className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full flex-1 space-y-5">
-        <div className="relative max-w-md">
-          <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
-          <input
-            type="text"
-            value={busca}
-            onChange={(e) => setBusca(e.target.value)}
-            placeholder="Filtrar por título ou disciplina (ex: Drenagem)..."
-            className="w-full pl-10 pr-4 py-2 rounded-lg border border-slate-300 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-600"
-          />
-        </div>
-
-        {loading ? (
-          <div className="text-center py-12 text-slate-500">Carregando seus projetos...</div>
-        ) : arquivosVisiveis.length === 0 ? (
-          <div className="bg-white p-12 rounded-xl border border-slate-200 text-center space-y-2">
-            <HardDrive className="w-8 h-8 text-slate-400 mx-auto" />
-            <p className="text-sm font-semibold text-slate-700">Nenhum arquivo disponível</p>
-            <p className="text-xs text-slate-500">
-              Não há arquivos publicados nos empreendimentos vinculados ao seu perfil de acesso.
-            </p>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 gap-3">
-            {arquivosVisiveis.map((arq) => {
-              const dataEnvio = arq.enviadoEm?.seconds
-                ? new Date(arq.enviadoEm.seconds * 1000).toLocaleDateString('pt-BR')
-                : 'Recente';
-
-              return (
-                <div
-                  key={arq.id}
-                  className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm hover:border-blue-300 transition flex flex-col sm:flex-row sm:items-center justify-between gap-4"
-                >
-                  <div className="space-y-1.5">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-xs font-bold px-2.5 py-0.5 rounded bg-blue-600 text-white">
-                        {arq.revisao}
-                      </span>
-                      <span className="text-xs font-semibold px-2.5 py-0.5 rounded bg-slate-100 text-slate-700">
-                        {arq.disciplina}
-                      </span>
-                      <span className="text-xs text-slate-400 flex items-center gap-1">
-                        <Clock className="w-3.5 h-3.5" />
-                        Publicado em {dataEnvio}
-                      </span>
-                    </div>
-
-                    <h3 className="text-base font-bold text-slate-900">{arq.titulo}</h3>
-
-                    <p className="text-xs text-slate-500">
-                      Empreendimento: <strong>{arq.empreendimentoNome}</strong> • Arquivo:{' '}
-                      <span className="font-mono">{arq.nomeArquivo}</span> ({arq.tamanho})
-                    </p>
-                  </div>
-
-                  <button
-                    onClick={() => handleDownloadComProtocolo(arq)}
-                    className="flex items-center justify-center gap-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg text-sm transition shadow-sm shrink-0"
-                  >
-                    <Download className="w-4 h-4" />
-                    Baixar Arquivo
-                  </button>
-                </div>
-              );
-            })}
+      {/* ÁREA PRINCIPAL DE CONTEÚDO DO CLIENTE */}
+      <div className="flex-1 flex flex-col min-w-0">
+        {/* Aviso de Prazo de Validade (se houver) */}
+        {userProfile.expiraEm && (
+          <div className="bg-amber-50 border-b border-amber-200 px-4 py-2 text-center text-xs text-amber-900">
+            <Clock className="w-3.5 h-3.5 inline mr-1.5 text-amber-700" />
+            Acesso temporário válido até{' '}
+            <strong>{formatarDataExpiracao(userProfile.expiraEm)}</strong>. Salve uma cópia local dos arquivos.
           </div>
         )}
-      </main>
 
-      <footer className="bg-white border-t border-slate-200 py-4 text-center text-xs text-slate-400">
-        PrecManager • Portal de Projetos — <strong>Grupo Precision</strong>
-      </footer>
+        {/* Header Superior com Breadcrumb */}
+        <header className="h-16 bg-white border-b border-slate-200 px-4 sm:px-8 flex items-center justify-between sticky top-0 z-20">
+          <div className="flex items-center gap-3 min-w-0">
+            <button
+              onClick={() => setMobileMenuOpen(true)}
+              className="lg:hidden p-2 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 shrink-0"
+            >
+              <Menu className="w-5 h-5" />
+            </button>
+
+            <div className="flex items-center gap-1.5 text-sm truncate">
+              <button
+                onClick={selecionarTodosProjetos}
+                className="text-slate-400 hover:text-blue-600 transition shrink-0"
+              >
+                Projetos
+              </button>
+
+              {empAtualObj && (
+                <>
+                  <ChevronRight className="w-4 h-4 text-slate-300 shrink-0" />
+                  <button
+                    onClick={() => selecionarEmpreendimento(empAtualObj.id)}
+                    className={`truncate ${
+                      selectedDisc === 'TODAS'
+                        ? 'font-bold text-slate-900'
+                        : 'text-slate-500 hover:text-blue-600'
+                    }`}
+                  >
+                    {empAtualObj.nomeObra}
+                  </button>
+                </>
+              )}
+
+              {selectedDisc !== 'TODAS' && (
+                <>
+                  <ChevronRight className="w-4 h-4 text-slate-300 shrink-0" />
+                  <span className="font-bold text-blue-600 truncate">{selectedDisc}</span>
+                </>
+              )}
+
+              {!empAtualObj && (
+                <>
+                  <ChevronRight className="w-4 h-4 text-slate-300 shrink-0" />
+                  <span className="font-bold text-slate-900">Todos os Empreendimentos</span>
+                </>
+              )}
+            </div>
+          </div>
+
+          <span className="hidden sm:inline-block text-xs font-semibold text-slate-400 shrink-0">
+            {arquivosVisiveis.length} arquivo(s)
+          </span>
+        </header>
+
+        {/* Conteúdo & Listagem de Arquivos */}
+        <main className="p-4 sm:p-8 max-w-6xl w-full mx-auto flex-1 space-y-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div>
+              <h1 className="text-xl font-bold text-slate-900">
+                {selectedDisc !== 'TODAS'
+                  ? selectedDisc
+                  : empAtualObj
+                  ? empAtualObj.nomeObra
+                  : 'Central de Projetos e Entregas Técnicas'}
+              </h1>
+              <p className="text-xs text-slate-500 mt-0.5">
+                {empAtualObj?.localizacao
+                  ? `${empAtualObj.localizacao} • `
+                  : 'Grupo Precision • '}
+                Clique em "Baixar Arquivo" para obter a versão técnica oficial.
+              </p>
+            </div>
+
+            <div className="relative w-full sm:w-80">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-2.5" />
+              <input
+                type="text"
+                value={busca}
+                onChange={(e) => setBusca(e.target.value)}
+                placeholder="Buscar documento, prancha, DWG..."
+                className="w-full pl-10 pr-4 py-2 rounded-lg border border-slate-300 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-600"
+              />
+            </div>
+          </div>
+
+          {loading ? (
+            <div className="text-center py-12 text-slate-500">Carregando seus projetos...</div>
+          ) : arquivosVisiveis.length === 0 ? (
+            <div className="bg-white p-12 rounded-xl border border-slate-200 text-center space-y-2">
+              <HardDrive className="w-8 h-8 text-slate-400 mx-auto" />
+              <p className="text-sm font-semibold text-slate-700">Nenhum arquivo encontrado</p>
+              <p className="text-xs text-slate-500">
+                Selecione outro empreendimento ou disciplina no menu lateral esquerdo.
+              </p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 gap-3">
+              {arquivosVisiveis.map((arq) => {
+                const dataEnvio = arq.enviadoEm?.seconds
+                  ? new Date(arq.enviadoEm.seconds * 1000).toLocaleDateString('pt-BR')
+                  : 'Recente';
+
+                return (
+                  <div
+                    key={arq.id}
+                    className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm hover:border-blue-300 transition flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+                  >
+                    <div className="space-y-1.5">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-xs font-bold px-2.5 py-0.5 rounded bg-blue-600 text-white">
+                          {arq.revisao}
+                        </span>
+                        <span className="text-xs font-semibold px-2.5 py-0.5 rounded bg-slate-100 text-slate-700">
+                          {arq.disciplina}
+                        </span>
+                        <span className="text-xs text-slate-400 flex items-center gap-1">
+                          <Clock className="w-3.5 h-3.5" />
+                          Publicado em {dataEnvio}
+                        </span>
+                      </div>
+
+                      <h3 className="text-base font-bold text-slate-900">{arq.titulo}</h3>
+
+                      <p className="text-xs text-slate-500">
+                        Empreendimento: <strong>{arq.empreendimentoNome}</strong> • Arquivo:{' '}
+                        <span className="font-mono">{arq.nomeArquivo}</span> ({arq.tamanho})
+                      </p>
+                    </div>
+
+                    <button
+                      onClick={() => handleDownloadComProtocolo(arq)}
+                      className="flex items-center justify-center gap-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg text-sm transition shadow-sm shrink-0"
+                    >
+                      <Download className="w-4 h-4" />
+                      Baixar Arquivo
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </main>
+      </div>
     </div>
   );
 }
