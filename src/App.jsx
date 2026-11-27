@@ -52,6 +52,10 @@ import {
   FolderOpen,
   Layers,
   Menu,
+  Eye,
+  Phone,
+  MapPin,
+  UserCheck,
 } from 'lucide-react';
 
 const DISCIPLINAS_PADRAO = [
@@ -285,7 +289,7 @@ export default function App() {
 }
 
 /* ============================================================================
-   PAINEL ADMINISTRATIVO (LAYOUT COM SIDEBAR LATERAL + LIMPEZA AUTOMÁTICA)
+   PAINEL ADMINISTRATIVO (GRUPO PRECISION)
 ============================================================================ */
 function AdminDashboard({ userProfile, onLogout }) {
   const [activeTab, setActiveTab] = useState('arquivos');
@@ -300,11 +304,21 @@ function AdminDashboard({ userProfile, onLogout }) {
   const [historico, setHistorico] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  // Nova Empresa
-  const [novaEmpNome, setNovaEmpNome] = useState('');
-  const [novaEmpCnpj, setNovaEmpCnpj] = useState('');
-  const [novaEmpCidade, setNovaEmpCidade] = useState('');
+  // Cadastro Completo de Empresa (Novo / Edição)
+  const [formEmpresaOpen, setFormEmpresaOpen] = useState(false);
+  const [editEmpresaId, setEditEmpresaId] = useState(null);
+  const [empCadastroNome, setEmpCadastroNome] = useState('');
+  const [empCadastroCnpj, setEmpCadastroCnpj] = useState('');
+  const [empCadastroIe, setEmpCadastroIe] = useState('');
+  const [empCadastroResponsavel, setEmpCadastroResponsavel] = useState('');
+  const [empCadastroEmail, setEmpCadastroEmail] = useState('');
+  const [empCadastroTelefone, setEmpCadastroTelefone] = useState('');
+  const [empCadastroEndereco, setEmpCadastroEndereco] = useState('');
+  const [empCadastroCidade, setEmpCadastroCidade] = useState('');
+  const [empCadastroObs, setEmpCadastroObs] = useState('');
   const [salvandoEmpresa, setSalvandoEmpresa] = useState(false);
+  const [buscaEmpresas, setBuscaEmpresas] = useState('');
+  const [fichaEmpresaModal, setFichaEmpresaModal] = useState(null);
 
   // Novo Usuário + Permissões + Prazo
   const [userEmpresaId, setUserEmpresaId] = useState('');
@@ -396,16 +410,16 @@ function AdminDashboard({ userProfile, onLogout }) {
     try {
       const snapEmpresas = await getDocs(collection(db, 'empresas'));
       const listaEmpresas = snapEmpresas.docs.map((d) => ({ id: d.id, ...d.data() }));
-      listaEmpresas.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+      listaEmpresas.sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt-BR'));
 
       const qUsers = query(collection(db, 'users'), where('role', '==', 'client'));
       const snapUsers = await getDocs(qUsers);
       const listaUsers = snapUsers.docs.map((d) => ({ id: d.id, ...d.data() }));
-      listaUsers.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+      listaUsers.sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt-BR'));
 
       const snapEmps = await getDocs(collection(db, 'empreendimentos'));
       const listaEmps = snapEmps.docs.map((d) => ({ id: d.id, ...d.data() }));
-      listaEmps.sort((a, b) => a.nomeObra.localeCompare(b.nomeObra, 'pt-BR'));
+      listaEmps.sort((a, b) => (a.nomeObra || '').localeCompare(b.nomeObra || '', 'pt-BR'));
 
       const snapArqs = await getDocs(collection(db, 'arquivos'));
       const listaArqs = snapArqs.docs.map((d) => ({ id: d.id, ...d.data() }));
@@ -415,7 +429,6 @@ function AdminDashboard({ userProfile, onLogout }) {
       const listaHist = snapHist.docs.map((d) => ({ id: d.id, ...d.data() }));
       listaHist.sort((a, b) => (b.dataPublicacao?.seconds || 0) - (a.dataPublicacao?.seconds || 0));
 
-      // Executa limpeza automática silenciosa se houver expirados
       const houveLimpeza = await executarLimpezaAutomaticaSilenciosa(
         listaUsers,
         listaArqs,
@@ -476,31 +489,108 @@ function AdminDashboard({ userProfile, onLogout }) {
     return Timestamp.fromDate(d);
   };
 
-  /* --- Handlers CRUD --- */
-  const handleCriarEmpresa = async (e) => {
+  /* --- Handlers Cadastro Completo de Empresas --- */
+  const abrirNovoCadastroEmpresa = () => {
+    setEditEmpresaId(null);
+    setEmpCadastroNome('');
+    setEmpCadastroCnpj('');
+    setEmpCadastroIe('');
+    setEmpCadastroResponsavel('');
+    setEmpCadastroEmail('');
+    setEmpCadastroTelefone('');
+    setEmpCadastroEndereco('');
+    setEmpCadastroCidade('');
+    setEmpCadastroObs('');
+    setFormEmpresaOpen(true);
+  };
+
+  const abrirEdicaoEmpresa = (emp) => {
+    setEditEmpresaId(emp.id);
+    setEmpCadastroNome(emp.nome || '');
+    setEmpCadastroCnpj(emp.cnpj || '');
+    setEmpCadastroIe(emp.inscricaoEstadual || '');
+    setEmpCadastroResponsavel(emp.responsavel || '');
+    setEmpCadastroEmail(emp.email || '');
+    setEmpCadastroTelefone(emp.telefone || '');
+    setEmpCadastroEndereco(emp.endereco || '');
+    setEmpCadastroCidade(emp.cidade || '');
+    setEmpCadastroObs(emp.observacoes || '');
+    setFormEmpresaOpen(true);
+  };
+
+  const handleSalvarEmpresa = async (e) => {
     e.preventDefault();
-    if (!novaEmpNome.trim()) return;
+    if (!empCadastroNome.trim()) {
+      alert('Informe pelo menos o Nome / Razão Social da empresa.');
+      return;
+    }
     setSalvandoEmpresa(true);
     try {
-      await addDoc(collection(db, 'empresas'), {
-        nome: novaEmpNome.trim(),
-        cnpj: novaEmpCnpj.trim(),
-        cidade: novaEmpCidade.trim(),
-        criadoEm: serverTimestamp(),
-      });
-      setNovaEmpNome('');
-      setNovaEmpCnpj('');
-      setNovaEmpCidade('');
-      carregarDados();
-      alert('Empresa cadastrada com sucesso!');
+      const dadosEmpresa = {
+        nome: empCadastroNome.trim(),
+        cnpj: empCadastroCnpj.trim(),
+        inscricaoEstadual: empCadastroIe.trim(),
+        responsavel: empCadastroResponsavel.trim(),
+        email: empCadastroEmail.trim(),
+        telefone: empCadastroTelefone.trim(),
+        endereco: empCadastroEndereco.trim(),
+        cidade: empCadastroCidade.trim(),
+        observacoes: empCadastroObs.trim(),
+      };
+
+      if (editEmpresaId) {
+        await updateDoc(doc(db, 'empresas', editEmpresaId), {
+          ...dadosEmpresa,
+          atualizadoEm: serverTimestamp(),
+        });
+        alert('Dados da empresa atualizados com sucesso!');
+      } else {
+        await addDoc(collection(db, 'empresas'), {
+          ...dadosEmpresa,
+          criadoEm: serverTimestamp(),
+        });
+        alert('Empresa cadastrada com sucesso!');
+      }
+
+      setFormEmpresaOpen(false);
+      setEditEmpresaId(null);
+      await carregarDados();
     } catch (err) {
-      console.error(err);
-      alert('Erro ao cadastrar empresa.');
+      console.error('Erro Firestore empresas:', err);
+      alert(
+        'Não foi possível salvar a empresa no banco de dados.\n\n' +
+          'Verifique se você já publicou as novas Regras de Segurança no Console do Firebase (Firestore Database → Regras).\n\n' +
+          'Detalhe técnico: ' +
+          (err.message || err.code)
+      );
     } finally {
       setSalvandoEmpresa(false);
     }
   };
 
+  const handleExcluirEmpresa = async (emp) => {
+    const obrasVinculadas = empreendimentos.filter((o) => o.empresaId === emp.id).length;
+    const usersVinculados = usuarios.filter((u) => u.empresaId === emp.id).length;
+
+    if (obrasVinculadas > 0 || usersVinculados > 0) {
+      alert(
+        `Não é possível excluir "${emp.nome}" enquanto houver ${obrasVinculadas} empreendimento(s) e ${usersVinculados} usuário(s) vinculados a ela.`
+      );
+      return;
+    }
+
+    if (!window.confirm(`Deseja realmente excluir o cadastro de "${emp.nome}"?`)) return;
+
+    try {
+      await deleteDoc(doc(db, 'empresas', emp.id));
+      await carregarDados();
+    } catch (err) {
+      console.error(err);
+      alert('Erro ao excluir empresa: ' + err.message);
+    }
+  };
+
+  /* --- Handlers Usuários --- */
   const toggleEmpPermitidoNovo = (empId) => {
     setUserEmpsPermitidos((prev) =>
       prev.includes(empId) ? prev.filter((id) => id !== empId) : [...prev, empId]
@@ -615,6 +705,7 @@ function AdminDashboard({ userProfile, onLogout }) {
     }
   };
 
+  /* --- Handlers Empreendimentos --- */
   const handleCriarEmpreendimento = async (e) => {
     e.preventDefault();
     if (!empEmpresaId) {
@@ -638,12 +729,13 @@ function AdminDashboard({ userProfile, onLogout }) {
       alert('Empreendimento cadastrado com sucesso!');
     } catch (err) {
       console.error(err);
-      alert('Erro ao cadastrar empreendimento.');
+      alert('Erro ao cadastrar empreendimento: ' + err.message);
     } finally {
       setSalvandoEmp(false);
     }
   };
 
+  /* --- Handlers Disciplinas --- */
   const handleCriarDisciplina = async (e) => {
     e.preventDefault();
     const nomeLimpo = novaDisciplinaNome.trim();
@@ -698,6 +790,7 @@ function AdminDashboard({ userProfile, onLogout }) {
     }
   };
 
+  /* --- Handlers Arquivos --- */
   const handleUploadArquivo = async (e) => {
     e.preventDefault();
     if (!upEmpId || !upFile) {
@@ -861,6 +954,15 @@ function AdminDashboard({ userProfile, onLogout }) {
   const currentTabInfo =
     navGroups.flatMap((g) => g.items).find((item) => item.id === activeTab) || navGroups[0].items[0];
 
+  const empresasFiltradas = empresas.filter(
+    (emp) =>
+      (emp.nome || '').toLowerCase().includes(buscaEmpresas.toLowerCase()) ||
+      (emp.cnpj || '').toLowerCase().includes(buscaEmpresas.toLowerCase()) ||
+      (emp.responsavel || '').toLowerCase().includes(buscaEmpresas.toLowerCase()) ||
+      (emp.cidade || '').toLowerCase().includes(buscaEmpresas.toLowerCase()) ||
+      (emp.telefone || '').toLowerCase().includes(buscaEmpresas.toLowerCase())
+  );
+
   const arquivosFiltrados = filtroEmpresa
     ? arquivos.filter((a) => a.empresaId === filtroEmpresa)
     : arquivos;
@@ -879,7 +981,6 @@ function AdminDashboard({ userProfile, onLogout }) {
 
   return (
     <div className="min-h-screen bg-slate-50 flex">
-      {/* Overlay Mobile */}
       {mobileMenuOpen && (
         <div
           onClick={() => setMobileMenuOpen(false)}
@@ -887,7 +988,7 @@ function AdminDashboard({ userProfile, onLogout }) {
         />
       )}
 
-      {/* SIDEBAR ESQUERDA (ADMIN) */}
+      {/* SIDEBAR ESQUERDA */}
       <aside
         className={`fixed lg:sticky top-0 left-0 z-40 h-screen w-72 bg-slate-900 text-slate-200 flex flex-col border-r border-slate-800 transition-transform duration-200 ${
           mobileMenuOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
@@ -943,7 +1044,6 @@ function AdminDashboard({ userProfile, onLogout }) {
           ))}
         </nav>
 
-        {/* Rodapé Perfil Admin */}
         <div className="p-4 border-t border-slate-800 bg-slate-950/40 shrink-0">
           <div className="flex items-center justify-between gap-2">
             <div className="min-w-0">
@@ -961,9 +1061,8 @@ function AdminDashboard({ userProfile, onLogout }) {
         </div>
       </aside>
 
-      {/* ÁREA DE CONTEÚDO PRINCIPAL */}
+      {/* CONTEÚDO PRINCIPAL */}
       <div className="flex-1 flex flex-col min-w-0">
-        {/* Barra Superior (Breadcrumb + Mobile Trigger) */}
         <header className="h-16 bg-white border-b border-slate-200 px-4 sm:px-8 flex items-center justify-between sticky top-0 z-20">
           <div className="flex items-center gap-3">
             <button
@@ -1180,90 +1279,137 @@ function AdminDashboard({ userProfile, onLogout }) {
                 </div>
               )}
 
-              {/* ABA 2: EMPRESAS */}
+              {/* ABA 2: CADASTRO GERAL & CONSULTA DE EMPRESAS CLIENTES */}
               {activeTab === 'empresas' && (
-                <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
-                  <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm h-fit">
-                    <h2 className="text-base font-bold text-slate-800 flex items-center gap-2 mb-4">
-                      <Plus className="w-5 h-5 text-blue-600" />
-                      Cadastrar Empresa Cliente
-                    </h2>
-                    <form onSubmit={handleCriarEmpresa} className="space-y-4">
-                      <div>
-                        <label className="block text-xs font-semibold text-slate-600 mb-1">
-                          Razão Social / Nome Fantasia *
-                        </label>
+                <div className="space-y-6">
+                  {/* Barra Superior de Ação e Busca */}
+                  <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                    <div>
+                      <h2 className="text-base font-bold text-slate-900">
+                        Cadastro Geral de Empresas Clientes ({empresas.length})
+                      </h2>
+                      <p className="text-xs text-slate-500 mt-0.5">
+                        Consulte dados cadastrais, responsáveis, contatos, obras e usuários vinculados.
+                      </p>
+                    </div>
+
+                    <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+                      <div className="relative sm:w-72">
+                        <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
                         <input
                           type="text"
-                          required
-                          value={novaEmpNome}
-                          onChange={(e) => setNovaEmpNome(e.target.value)}
-                          placeholder="Ex: Construtora Horizonte Ltda"
-                          className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm"
+                          value={buscaEmpresas}
+                          onChange={(e) => setBuscaEmpresas(e.target.value)}
+                          placeholder="Buscar empresa, CNPJ, contato..."
+                          className="w-full pl-9 pr-3 py-2 rounded-lg border border-slate-300 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-blue-600"
                         />
                       </div>
-                      <div>
-                        <label className="block text-xs font-semibold text-slate-600 mb-1">
-                          CNPJ (Opcional)
-                        </label>
-                        <input
-                          type="text"
-                          value={novaEmpCnpj}
-                          onChange={(e) => setNovaEmpCnpj(e.target.value)}
-                          placeholder="00.000.000/0001-00"
-                          className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-semibold text-slate-600 mb-1">
-                          Cidade / UF
-                        </label>
-                        <input
-                          type="text"
-                          value={novaEmpCidade}
-                          onChange={(e) => setNovaEmpCidade(e.target.value)}
-                          placeholder="Ex: São José dos Campos - SP"
-                          className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm"
-                        />
-                      </div>
+
                       <button
-                        type="submit"
-                        disabled={salvandoEmpresa}
-                        className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg text-sm transition"
+                        onClick={abrirNovoCadastroEmpresa}
+                        className="flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg text-xs transition shadow-sm shrink-0"
                       >
-                        {salvandoEmpresa ? 'Salvando...' : 'Salvar Empresa'}
+                        <Plus className="w-4 h-4" />
+                        Nova Empresa
                       </button>
-                    </form>
+                    </div>
                   </div>
 
-                  <div className="xl:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-4 h-fit">
-                    {empresas.map((emp) => {
-                      const qtdObras = empreendimentos.filter((o) => o.empresaId === emp.id).length;
-                      const qtdUsers = usuarios.filter((u) => u.empresaId === emp.id).length;
+                  {/* Tabela Geral de Consulta */}
+                  <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
+                    {empresasFiltradas.length === 0 ? (
+                      <div className="p-12 text-center space-y-2">
+                        <Building2 className="w-8 h-8 text-slate-400 mx-auto" />
+                        <p className="text-sm font-semibold text-slate-700">
+                          Nenhuma empresa cadastrada ou encontrada
+                        </p>
+                        <p className="text-xs text-slate-500">
+                          Clique em "+ Nova Empresa" acima para iniciar o cadastro.
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-left border-collapse">
+                          <thead>
+                            <tr className="bg-slate-50 border-b border-slate-200 text-xs font-semibold text-slate-600 uppercase">
+                              <th className="py-3.5 px-4">Empresa / CNPJ</th>
+                              <th className="py-3.5 px-4">Responsável & Contato</th>
+                              <th className="py-3.5 px-4">Cidade / UF</th>
+                              <th className="py-3.5 px-4">Vínculos</th>
+                              <th className="py-3.5 px-4 text-right">Ações</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-200 text-sm">
+                            {empresasFiltradas.map((emp) => {
+                              const qtdObras = empreendimentos.filter(
+                                (o) => o.empresaId === emp.id
+                              ).length;
+                              const qtdUsers = usuarios.filter(
+                                (u) => u.empresaId === emp.id
+                              ).length;
 
-                      return (
-                        <div
-                          key={emp.id}
-                          className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-2.5"
-                        >
-                          <div className="flex items-start justify-between gap-2">
-                            <h3 className="font-bold text-slate-900 text-base">{emp.nome}</h3>
-                            <span className="text-xs text-slate-400 shrink-0">{emp.cidade}</span>
-                          </div>
-                          {emp.cnpj && (
-                            <p className="text-xs font-mono text-slate-500">CNPJ: {emp.cnpj}</p>
-                          )}
-                          <div className="pt-2 flex items-center gap-3 text-xs font-medium text-slate-600 border-t border-slate-100">
-                            <span className="px-2.5 py-1 rounded bg-blue-50 text-blue-700">
-                              {qtdObras} empreendimento(s)
-                            </span>
-                            <span className="px-2.5 py-1 rounded bg-slate-100 text-slate-700">
-                              {qtdUsers} usuário(s)
-                            </span>
-                          </div>
-                        </div>
-                      );
-                    })}
+                              return (
+                                <tr key={emp.id} className="hover:bg-slate-50 transition">
+                                  <td className="py-3.5 px-4">
+                                    <p className="font-bold text-slate-900">{emp.nome}</p>
+                                    <p className="text-xs font-mono text-slate-500">
+                                      {emp.cnpj || 'CNPJ não informado'}
+                                    </p>
+                                  </td>
+                                  <td className="py-3.5 px-4">
+                                    <p className="text-xs font-semibold text-slate-800">
+                                      {emp.responsavel || '—'}
+                                    </p>
+                                    <p className="text-xs text-slate-500">
+                                      {emp.telefone || emp.email || 'Sem contato registrado'}
+                                    </p>
+                                  </td>
+                                  <td className="py-3.5 px-4 text-xs text-slate-600">
+                                    {emp.cidade || '—'}
+                                  </td>
+                                  <td className="py-3.5 px-4">
+                                    <div className="flex items-center gap-2 text-xs">
+                                      <span className="px-2 py-0.5 rounded bg-blue-50 text-blue-700 font-semibold">
+                                        {qtdObras} obra(s)
+                                      </span>
+                                      <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-700 font-semibold">
+                                        {qtdUsers} user(s)
+                                      </span>
+                                    </div>
+                                  </td>
+                                  <td className="py-3.5 px-4 text-right">
+                                    <div className="inline-flex items-center gap-1.5">
+                                      <button
+                                        onClick={() => setFichaEmpresaModal(emp)}
+                                        className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-slate-100 text-slate-700 hover:bg-slate-200 transition"
+                                        title="Consultar ficha completa"
+                                      >
+                                        <Eye className="w-3.5 h-3.5" />
+                                        Ficha
+                                      </button>
+                                      <button
+                                        onClick={() => abrirEdicaoEmpresa(emp)}
+                                        className="p-1.5 rounded-lg text-blue-600 hover:bg-blue-50 border border-transparent hover:border-blue-200 transition"
+                                        title="Editar cadastro"
+                                      >
+                                        <Pencil className="w-4 h-4" />
+                                      </button>
+                                      <button
+                                        onClick={() => handleExcluirEmpresa(emp)}
+                                        className="p-1.5 rounded-lg text-red-600 hover:bg-red-50 border border-transparent hover:border-red-200 transition"
+                                        title="Excluir empresa"
+                                      >
+                                        <Trash2 className="w-4 h-4" />
+                                      </button>
+                                    </div>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
@@ -1278,9 +1424,21 @@ function AdminDashboard({ userProfile, onLogout }) {
                     </h2>
                     <form onSubmit={handleCriarEmpreendimento} className="space-y-4">
                       <div>
-                        <label className="block text-xs font-semibold text-slate-600 mb-1">
-                          Empresa Proprietária *
-                        </label>
+                        <div className="flex items-center justify-between mb-1">
+                          <label className="block text-xs font-semibold text-slate-600">
+                            Empresa Proprietária *
+                          </label>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setActiveTab('empresas');
+                              abrirNovoCadastroEmpresa();
+                            }}
+                            className="text-[11px] font-semibold text-blue-600 hover:underline"
+                          >
+                            + Nova Empresa
+                          </button>
+                        </div>
                         <select
                           required
                           value={empEmpresaId}
@@ -1742,16 +1900,14 @@ function AdminDashboard({ userProfile, onLogout }) {
               {/* ABA 6: HISTÓRICO PERMANENTE */}
               {activeTab === 'historico' && (
                 <div className="space-y-6">
-                  <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                    <div>
-                      <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
-                        <Archive className="w-5 h-5 text-blue-600" />
-                        Acervo Histórico Permanente de Entregas
-                      </h2>
-                      <p className="text-xs text-slate-500 mt-1">
-                        Registro definitivo de todas as entregas realizadas. Quando o prazo de um cliente expira, os arquivos pesados são removidos automaticamente do Storage, mas este histórico permanece salvo.
-                      </p>
-                    </div>
+                  <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
+                    <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                      <Archive className="w-5 h-5 text-blue-600" />
+                      Acervo Histórico Permanente de Entregas
+                    </h2>
+                    <p className="text-xs text-slate-500 mt-1">
+                      Registro definitivo de todas as entregas realizadas. Quando o prazo de um cliente expira, os arquivos pesados são removidos automaticamente do Storage, mas este histórico permanece salvo.
+                    </p>
                   </div>
 
                   <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
@@ -1876,6 +2032,326 @@ function AdminDashboard({ userProfile, onLogout }) {
           )}
         </main>
       </div>
+
+      {/* MODAL: FORMULÁRIO COMPLETO DE CADASTRO / EDIÇÃO DE EMPRESA */}
+      {formEmpresaOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white rounded-2xl max-w-2xl w-full border border-slate-200 shadow-2xl overflow-hidden my-8">
+            <div className="px-6 py-4 bg-slate-900 text-white flex items-center justify-between">
+              <div>
+                <h3 className="font-bold text-base">
+                  {editEmpresaId ? 'Editar Cadastro da Empresa' : 'Cadastro Completo de Empresa Cliente'}
+                </h3>
+                <p className="text-xs text-slate-400">
+                  Apenas o Nome / Razão Social é obrigatório; preencha o restante conforme necessário.
+                </p>
+              </div>
+              <button
+                onClick={() => setFormEmpresaOpen(false)}
+                className="text-slate-400 hover:text-white"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSalvarEmpresa} className="p-6 space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="sm:col-span-2">
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Razão Social / Nome Fantasia *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={empCadastroNome}
+                    onChange={(e) => setEmpCadastroNome(e.target.value)}
+                    placeholder="Ex: Construtora Horizonte Ltda"
+                    className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-blue-600"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">
+                    CNPJ / CPF
+                  </label>
+                  <input
+                    type="text"
+                    value={empCadastroCnpj}
+                    onChange={(e) => setEmpCadastroCnpj(e.target.value)}
+                    placeholder="00.000.000/0001-00"
+                    className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">
+                    Inscrição Estadual / Municipal
+                  </label>
+                  <input
+                    type="text"
+                    value={empCadastroIe}
+                    onChange={(e) => setEmpCadastroIe(e.target.value)}
+                    placeholder="Opcional"
+                    className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">
+                    Responsável Principal
+                  </label>
+                  <input
+                    type="text"
+                    value={empCadastroResponsavel}
+                    onChange={(e) => setEmpCadastroResponsavel(e.target.value)}
+                    placeholder="Ex: Eng. Roberto Almeida"
+                    className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">
+                    Telefone / WhatsApp
+                  </label>
+                  <input
+                    type="text"
+                    value={empCadastroTelefone}
+                    onChange={(e) => setEmpCadastroTelefone(e.target.value)}
+                    placeholder="(12) 99999-9999"
+                    className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm"
+                  />
+                </div>
+
+                <div className="sm:col-span-2">
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">
+                    E-mail Corporativo / Financeiro
+                  </label>
+                  <input
+                    type="email"
+                    value={empCadastroEmail}
+                    onChange={(e) => setEmpCadastroEmail(e.target.value)}
+                    placeholder="contato@empresa.com.br"
+                    className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm"
+                  />
+                </div>
+
+                <div className="sm:col-span-2">
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">
+                    Endereço Completo
+                  </label>
+                  <input
+                    type="text"
+                    value={empCadastroEndereco}
+                    onChange={(e) => setEmpCadastroEndereco(e.target.value)}
+                    placeholder="Rua / Av., Número, Bairro, CEP"
+                    className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm"
+                  />
+                </div>
+
+                <div className="sm:col-span-2">
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">
+                    Cidade / UF
+                  </label>
+                  <input
+                    type="text"
+                    value={empCadastroCidade}
+                    onChange={(e) => setEmpCadastroCidade(e.target.value)}
+                    placeholder="Ex: Guaratinguetá - SP"
+                    className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm"
+                  />
+                </div>
+
+                <div className="sm:col-span-2">
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">
+                    Observações Internas
+                  </label>
+                  <textarea
+                    rows={2}
+                    value={empCadastroObs}
+                    onChange={(e) => setEmpCadastroObs(e.target.value)}
+                    placeholder="Anotações de contrato, escopo ou preferências de entrega..."
+                    className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm"
+                  />
+                </div>
+              </div>
+
+              <div className="pt-3 border-t border-slate-200 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setFormEmpresaOpen(false)}
+                  className="px-4 py-2 rounded-lg text-xs font-semibold text-slate-600 hover:bg-slate-100"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={salvandoEmpresa}
+                  className="px-5 py-2 rounded-lg text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white"
+                >
+                  {salvandoEmpresa
+                    ? 'Salvando...'
+                    : editEmpresaId
+                    ? 'Salvar Alterações'
+                    : 'Cadastrar Empresa'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: FICHA COMPLETA DE CONSULTA DA EMPRESA */}
+      {fichaEmpresaModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white rounded-2xl max-w-2xl w-full border border-slate-200 shadow-2xl overflow-hidden my-8">
+            <div className="px-6 py-4 bg-slate-900 text-white flex items-center justify-between">
+              <div>
+                <h3 className="font-bold text-base">{fichaEmpresaModal.nome}</h3>
+                <p className="text-xs text-slate-400">
+                  Ficha Cadastral Completa • Grupo Precision
+                </p>
+              </div>
+              <button
+                onClick={() => setFichaEmpresaModal(null)}
+                className="text-slate-400 hover:text-white"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-6 text-sm">
+              {/* Dados Cadastrais */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-slate-50 p-4 rounded-xl border border-slate-200 text-xs">
+                <div>
+                  <span className="text-slate-400 block">CNPJ / CPF</span>
+                  <span className="font-semibold text-slate-800 font-mono">
+                    {fichaEmpresaModal.cnpj || 'Não informado'}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-slate-400 block">Inscrição Estadual / Municipal</span>
+                  <span className="font-semibold text-slate-800">
+                    {fichaEmpresaModal.inscricaoEstadual || 'Não informado'}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-slate-400 block flex items-center gap-1">
+                    <UserCheck className="w-3.5 h-3.5" /> Responsável
+                  </span>
+                  <span className="font-semibold text-slate-800">
+                    {fichaEmpresaModal.responsavel || 'Não informado'}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-slate-400 block flex items-center gap-1">
+                    <Phone className="w-3.5 h-3.5" /> Telefone / WhatsApp
+                  </span>
+                  <span className="font-semibold text-slate-800">
+                    {fichaEmpresaModal.telefone || 'Não informado'}
+                  </span>
+                </div>
+                <div className="sm:col-span-2">
+                  <span className="text-slate-400 block">E-mail Corporativo</span>
+                  <span className="font-semibold text-slate-800">
+                    {fichaEmpresaModal.email || 'Não informado'}
+                  </span>
+                </div>
+                <div className="sm:col-span-2">
+                  <span className="text-slate-400 block flex items-center gap-1">
+                    <MapPin className="w-3.5 h-3.5" /> Endereço / Cidade
+                  </span>
+                  <span className="font-semibold text-slate-800">
+                    {[fichaEmpresaModal.endereco, fichaEmpresaModal.cidade]
+                      .filter(Boolean)
+                      .join(' — ') || 'Não informado'}
+                  </span>
+                </div>
+                {fichaEmpresaModal.observacoes && (
+                  <div className="sm:col-span-2 pt-2 border-t border-slate-200">
+                    <span className="text-slate-400 block">Observações</span>
+                    <p className="text-slate-700 mt-0.5">{fichaEmpresaModal.observacoes}</p>
+                  </div>
+                )}
+              </div>
+
+              {/* Empreendimentos Vinculados */}
+              <div>
+                <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">
+                  Empreendimentos Vinculados
+                </h4>
+                {empreendimentos.filter((o) => o.empresaId === fichaEmpresaModal.id).length ===
+                0 ? (
+                  <p className="text-xs text-slate-400">Nenhum empreendimento cadastrado.</p>
+                ) : (
+                  <div className="space-y-1.5">
+                    {empreendimentos
+                      .filter((o) => o.empresaId === fichaEmpresaModal.id)
+                      .map((obra) => (
+                        <div
+                          key={obra.id}
+                          className="flex items-center justify-between p-2.5 rounded-lg border border-slate-200 text-xs"
+                        >
+                          <span className="font-semibold text-slate-800">{obra.nomeObra}</span>
+                          <span className="text-slate-500">
+                            {obra.localizacao} • {obra.status}
+                          </span>
+                        </div>
+                      ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Usuários Vinculados */}
+              <div>
+                <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">
+                  Usuários com Acesso ao Portal
+                </h4>
+                {usuarios.filter((u) => u.empresaId === fichaEmpresaModal.id).length === 0 ? (
+                  <p className="text-xs text-slate-400">Nenhum usuário cadastrado.</p>
+                ) : (
+                  <div className="space-y-1.5">
+                    {usuarios
+                      .filter((u) => u.empresaId === fichaEmpresaModal.id)
+                      .map((usr) => (
+                        <div
+                          key={usr.id}
+                          className="flex items-center justify-between p-2.5 rounded-lg border border-slate-200 text-xs"
+                        >
+                          <div>
+                            <span className="font-semibold text-slate-800">{usr.nome}</span>
+                            <span className="text-slate-500 ml-2 font-mono">{usr.email}</span>
+                          </div>
+                          <span className="text-slate-500">
+                            {formatarDataExpiracao(usr.expiraEm)}
+                          </span>
+                        </div>
+                      ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="pt-2 flex justify-end gap-2">
+                <button
+                  onClick={() => {
+                    const emp = fichaEmpresaModal;
+                    setFichaEmpresaModal(null);
+                    abrirEdicaoEmpresa(emp);
+                  }}
+                  className="px-4 py-2 rounded-lg text-xs font-semibold bg-blue-50 text-blue-700 hover:bg-blue-100"
+                >
+                  Editar Dados
+                </button>
+                <button
+                  onClick={() => setFichaEmpresaModal(null)}
+                  className="px-5 py-2 rounded-lg text-xs font-semibold bg-slate-900 text-white"
+                >
+                  Fechar
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* MODAL DE EDIÇÃO DE PERMISSÕES E PRAZO */}
       {editUserModal && (
@@ -2027,7 +2503,6 @@ function ClientDashboard({ userProfile, onLogout }) {
         listaEmps.sort((a, b) => a.nomeObra.localeCompare(b.nomeObra, 'pt-BR'));
         setEmpreendimentos(listaEmps);
 
-        // Expande automaticamente o primeiro empreendimento na árvore lateral
         if (listaEmps.length > 0) {
           setExpandedEmps({ [listaEmps[0].id]: true });
         }
@@ -2114,7 +2589,6 @@ function ClientDashboard({ userProfile, onLogout }) {
 
   return (
     <div className="min-h-screen bg-slate-50 flex">
-      {/* Overlay Mobile */}
       {mobileMenuOpen && (
         <div
           onClick={() => setMobileMenuOpen(false)}
@@ -2122,7 +2596,6 @@ function ClientDashboard({ userProfile, onLogout }) {
         />
       )}
 
-      {/* SIDEBAR LATERAL EM ÁRVORE (EMPREENDIMENTOS -> DISCIPLINAS) */}
       <aside
         className={`fixed lg:sticky top-0 left-0 z-40 h-screen w-72 bg-slate-900 text-slate-200 flex flex-col border-r border-slate-800 transition-transform duration-200 ${
           mobileMenuOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
@@ -2138,14 +2611,12 @@ function ClientDashboard({ userProfile, onLogout }) {
           </button>
         </div>
 
-        {/* Árvore de Navegação */}
         <nav className="flex-1 overflow-y-auto px-3 py-5 space-y-4">
           <div>
             <p className="px-3 text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-2">
               Acervo Técnico
             </p>
 
-            {/* Item Raiz: Todos os Projetos */}
             <button
               onClick={selecionarTodosProjetos}
               className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-sm font-medium transition ${
@@ -2168,7 +2639,6 @@ function ClientDashboard({ userProfile, onLogout }) {
             </button>
           </div>
 
-          {/* Lista de Empreendimentos (Itens) e Disciplinas (Subitens) */}
           <div className="space-y-1">
             <p className="px-3 text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-2">
               Empreendimentos ({empreendimentos.length})
@@ -2184,7 +2654,6 @@ function ClientDashboard({ userProfile, onLogout }) {
 
               return (
                 <div key={emp.id} className="space-y-1">
-                  {/* Item Principal: Empreendimento */}
                   <div
                     className={`flex items-center rounded-xl transition ${
                       isEmpSelected
@@ -2197,7 +2666,6 @@ function ClientDashboard({ userProfile, onLogout }) {
                     <button
                       onClick={() => toggleExpandEmp(emp.id)}
                       className="p-2.5 text-slate-400 hover:text-white shrink-0"
-                      title={isExpanded ? 'Recolher disciplinas' : 'Expandir disciplinas'}
                     >
                       {isExpanded ? (
                         <ChevronDown className="w-3.5 h-3.5" />
@@ -2228,7 +2696,6 @@ function ClientDashboard({ userProfile, onLogout }) {
                     </button>
                   </div>
 
-                  {/* Subitens: Disciplinas do Empreendimento */}
                   {isExpanded && disciplinasDoEmp.length > 0 && (
                     <div className="ml-5 pl-3 border-l border-slate-700/80 space-y-0.5 py-1">
                       {disciplinasDoEmp.map((discNome) => {
@@ -2259,7 +2726,6 @@ function ClientDashboard({ userProfile, onLogout }) {
           </div>
         </nav>
 
-        {/* Rodapé do Usuário na Sidebar */}
         <div className="p-4 border-t border-slate-800 bg-slate-950/40 shrink-0">
           <div className="flex items-center justify-between gap-2">
             <div className="min-w-0">
@@ -2279,9 +2745,7 @@ function ClientDashboard({ userProfile, onLogout }) {
         </div>
       </aside>
 
-      {/* ÁREA PRINCIPAL DE CONTEÚDO DO CLIENTE */}
       <div className="flex-1 flex flex-col min-w-0">
-        {/* Aviso de Prazo de Validade (se houver) */}
         {userProfile.expiraEm && (
           <div className="bg-amber-50 border-b border-amber-200 px-4 py-2 text-center text-xs text-amber-900">
             <Clock className="w-3.5 h-3.5 inline mr-1.5 text-amber-700" />
@@ -2290,7 +2754,6 @@ function ClientDashboard({ userProfile, onLogout }) {
           </div>
         )}
 
-        {/* Header Superior com Breadcrumb */}
         <header className="h-16 bg-white border-b border-slate-200 px-4 sm:px-8 flex items-center justify-between sticky top-0 z-20">
           <div className="flex items-center gap-3 min-w-0">
             <button
@@ -2345,7 +2808,6 @@ function ClientDashboard({ userProfile, onLogout }) {
           </span>
         </header>
 
-        {/* Conteúdo & Listagem de Arquivos */}
         <main className="p-4 sm:p-8 max-w-6xl w-full mx-auto flex-1 space-y-6">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
